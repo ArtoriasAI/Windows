@@ -75,7 +75,7 @@ jobs:
       # ── 10. Kopiuj DLL-e z vcpkg ─────────────────────────────────────────
       - name: Copy vcpkg DLLs
         run: |
-          xcopy /Y /Q C:\vcpkg\installed\x64-windows\bin\*.dll deploy\bin\
+          xcopy /Y /Q build\vcpkg_installed\x64-windows\bin\*.dll deploy\bin\
         shell: cmd
 
       # ── 11. NSIS Installer ───────────────────────────────────────────────
