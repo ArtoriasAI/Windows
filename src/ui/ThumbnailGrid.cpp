@@ -41,7 +41,9 @@
 #include <QApplication>
 #include <QGuiApplication>
 #include <QClipboard>
+#ifndef _WIN32
 #include <execinfo.h>
+#endif
 #include <QWindow>
 #include <QDebug>
 #include <QCursor>
