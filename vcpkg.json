@@ -1,19 +1,10 @@
 {
   "name": "lapes-eye",
   "version": "0.5.0",
-  "description": "Lape's Eye — photo browser for Windows",
   "dependencies": [
-    {
-      "name": "exiv2",
-      "features": ["webready"]
-    },
-    {
-      "name": "libraw",
-      "version>=": "0.21.2"
-    },
+    "exiv2",
+    "libraw",
     "zlib",
-    "brotli",
     "expat"
-  ],
-  "builtin-baseline": "c8696863d371ab7f46e213d8f5ca923c4aef2a00"
+  ]
 }
