@@ -43,7 +43,7 @@ jobs:
       # ── 5. Instalacja zależności przez vcpkg ────────────────────────────
       - name: vcpkg install dependencies
         run: |
-          C:\vcpkg\vcpkg.exe install exiv2:x64-windows libraw:x64-windows
+          C:\vcpkg\vcpkg.exe install --triplet x64-windows --vcpkg-root C:\vcpkg
         shell: cmd
 
       # ── 6. CMake + Ninja ─────────────────────────────────────────────────
