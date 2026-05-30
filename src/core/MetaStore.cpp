@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QStandardPaths>
 #include <QRegularExpression>
+#include <QtGlobal>
 
 // libexiv2
 #include <exiv2/exiv2.hpp>
@@ -52,7 +53,14 @@ QString MetaStore::pick_flag_name(PickFlag f) {
 ExifData MetaStore::read_exif(const QString& path) {
     ExifData out;
     try {
+#ifdef Q_OS_WIN
+        // Na Windows Exiv2 wymaga UTF-8 dla polskich znaków w ścieżce
+        std::string utf8_path = path.toUtf8().toStdString();
+        auto img = Exiv2::ImageFactory::open(utf8_path);
+#else
         auto img = Exiv2::ImageFactory::open(path.toStdString());
+#endif
+        if (!img.get()) return out;
         img->readMetadata();
         auto& exif = img->exifData();
 
