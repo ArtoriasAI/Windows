@@ -314,10 +314,10 @@ void FullscreenViewer::mouseReleaseEvent(QMouseEvent* e) {
     // Był klik (nie drag) — punkt 1 i 2
     QPointF click = QPointF(e->pos());
     if (!m_is_zoomed) {
-        // Zoom x3 - kliknięty punkt ląduje na środku ekranu
+        // Zoom x4 - kliknięty punkt ląduje na środku ekranu
         // Oblicz gdzie jest click w przestrzeni obrazu
         QPointF img_pt = screen_to_image(click);
-        double new_zoom = 3.0;
+        double new_zoom = 4.0;
         new_zoom = qBound(0.1, new_zoom, 32.0);
         QSizeF bs = base_image_size();
         QSizeF new_zoomed = bs * new_zoom;
