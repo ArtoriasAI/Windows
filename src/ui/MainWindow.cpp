@@ -76,6 +76,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     pal.setColor(QPalette::Highlight,       QColor(0x2D, 0x7D, 0xD2));
     pal.setColor(QPalette::HighlightedText, Qt::white);
     qApp->setPalette(pal);
+#ifdef Q_OS_WIN
+    // Windows: jawnie ustaw kolor menubar i toolbara żeby nie było białych pasków
+    setStyleSheet(
+        "QMainWindow { background: #1e1e1e; }"
+        "QMenuBar { background: #1e1e1e; color: #ccc; border-bottom: 1px solid #333; }"
+        "QMenuBar::item:selected { background: #2d7dd2; color: #fff; }"
+        "QStatusBar { background: #1a1a1a; color: #888; border-top: 1px solid #333; }"
+    );
+#endif
 
     m_thumb_cache  = std::make_unique<ThumbCache>();
     m_thumb_cache->open();
@@ -135,6 +144,10 @@ void MainWindow::setup_toolbar() {
     tb->setObjectName("toolbar_main");
     tb->setMovable(false);
     tb->setIconSize(QSize(16, 16));
+    tb->setStyleSheet(
+        "QToolBar { background: #1e1e1e; border: none; border-bottom: 1px solid #333; spacing: 2px; }"
+        "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
+    );
 
     // Wstecz / Przód
     m_act_back = new QAction("◀", tb);
