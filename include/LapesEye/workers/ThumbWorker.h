@@ -28,6 +28,7 @@ signals:
 private:
     QImage generate_raster(const QString& path, int size, bool full_quality);
     QImage generate_raw(const QString& path, int size, bool full_quality);
+    QImage generate_psd(const QString& path, int size, bool full_quality);
 
     QString      m_path;
     int          m_size;
