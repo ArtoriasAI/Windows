@@ -696,6 +696,20 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
                     setFocus();
                 }
             });
+            // Pre-ładuj metadane folderów w tle — żeby etykiety kolorów były widoczne
+            QTimer::singleShot(50, this, [this, scan_dir]() {
+                if (m_current_dir != scan_dir) return;
+                for (const auto& f : m_visible) {
+                    if (f.is_dir && !m_meta_cache.contains(f.path)) {
+                        auto meta = MetaStore::load(f.path);
+                        if (meta.color_label != ColorLabel::None || meta.rating > 0) {
+                            m_meta_cache[f.path] = meta;
+                        }
+                    }
+                }
+                virt_full_rebuild();
+            });
+
             int total = 0;
             for (const auto& f : m_visible) if (!f.is_dir) ++total;
             emit thumb_progress(0, total);
