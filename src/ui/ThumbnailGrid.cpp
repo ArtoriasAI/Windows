@@ -9,6 +9,8 @@
 #include "LapesEye/ui/RubberOverlay.h"
 #include "LapesEye/ui/ThumbnailItem.h"
 #include "LapesEye/workers/ThumbWorker.h"
+#include "LapesEye/core/ThumbCache.h"
+#include <exiv2/exiv2.hpp>
 #include "LapesEye/core/FileScanner.h"
 #include "LapesEye/core/MetaStore.h"
 
@@ -496,22 +498,54 @@ void ThumbnailGrid::sync_canvas() {
     for (const auto& f : m_visible) {
         ThumbnailCanvasItem ci;
         ci.file = f;
-        // Metadane — tylko z cache, nigdy synchronicznie (blokuje UI)
+        // Metadane — tylko z cache
         auto meta_it = m_meta_cache.find(f.path);
         if (meta_it != m_meta_cache.end()) {
             ci.meta = meta_it.value();
             ci.meta_loaded = true;
         }
-        // Foldery bez cache: meta_loaded=false, canvas pokaże folder bez ratingu/koloru
-        // AsyncMeta załaduje gdy user kliknie
         items << ci;
     }
     m_canvas->set_thumb_size(m_thumb_size);
-    m_canvas->set_items(std::move(items));  // std::move — bez kopii 800 elementów
+    m_canvas->set_items(std::move(items));
     m_canvas->set_selected(m_selected);
     QSet<QString> cut_set;
     if (m_cut_mode) cut_set = QSet<QString>(m_clipboard_paths.begin(), m_clipboard_paths.end());
     m_canvas->set_cut_paths(cut_set);
+
+    // Załaduj metadane folderów asynchronicznie — kolory etykiet widoczne bez klikania
+    // Tylko foldery których nie ma w cache (nie blokuje UI)
+    // Zbierz pliki bez metadanych w cache
+    QStringList files_to_load;
+    for (const auto& f : m_visible)
+        if (!m_meta_cache.contains(f.path))
+            files_to_load << f.path;
+
+    if (!files_to_load.isEmpty()) {
+        auto fut = QtConcurrent::run([this, files_to_load]() {
+            // Grupuj po folderze — czytaj katalog JSON raz per folder
+            QMap<QString, QStringList> by_dir;
+            for (const QString& path : files_to_load)
+                by_dir[QFileInfo(path).dir().absolutePath()] << path;
+
+            for (auto it = by_dir.begin(); it != by_dir.end(); ++it) {
+                for (const QString& path : it.value()) {
+                    FileMetadata meta = MetaStore::load(path);
+                    if (meta.color_label != ColorLabel::None || meta.rating > 0) {
+                        QMetaObject::invokeMethod(this, [this, path, meta]() {
+                            m_meta_cache[path] = meta;
+                            if (m_canvas) m_canvas->set_metadata(path, meta);
+                        }, Qt::QueuedConnection);
+                    } else {
+                        QMetaObject::invokeMethod(this, [this, path, meta]() {
+                            m_meta_cache[path] = meta;
+                        }, Qt::QueuedConnection);
+                    }
+                }
+            }
+        });
+        Q_UNUSED(fut);
+    }
 }
 
 // ─── dir_at — ścieżka folderu pod pozycją (w koordinatach ThumbnailGrid) ─────
@@ -925,6 +959,8 @@ void ThumbnailGrid::apply_thumb_size_now(int size) {
 
 void ThumbnailGrid::do_zoom_rebuild() {
     QString anchor = m_primary;
+    if (anchor.isEmpty() && !m_selected.isEmpty())
+        anchor = *m_selected.begin();
     if (anchor.isEmpty() && !m_visible.isEmpty())
         anchor = m_visible.first().path;
 
@@ -948,19 +984,17 @@ void ThumbnailGrid::do_zoom_rebuild() {
     int h = _th > 0 ? _th : 1;
     m_container->resize(w, h);
 
+    // Najpierw przebuduj widok, potem przewiń do zaznaczonego
+    virt_update_visible_rows();
+
     if (!anchor.isEmpty()) {
         int target_idx = -1;
         for (int i = 0; i < m_visible.size(); ++i)
             if (m_visible[i].path == anchor) { target_idx = i; break; }
-        if (target_idx >= 0) {
-            int cols     = virt_cols();
-            int row      = target_idx / cols;
-            int item_top = VIRT_TOP + row * virt_cell_size();
-            m_scroll->verticalScrollBar()->setValue(qMax(0, item_top - VIRT_TOP));
-        }
+        if (target_idx >= 0)
+            navigate_to_index(target_idx);
     }
 
-    virt_update_visible_rows();
     QTimer::singleShot(30, this, &ThumbnailGrid::request_visible_thumbs);
 }
 
@@ -1046,6 +1080,24 @@ void ThumbnailGrid::on_item_clicked(const QString& path, Qt::KeyboardModifiers m
             emit selection_changed({});
         }
         return;
+    }
+
+    // Znajdź indeks klikniętego elementu i przewiń żeby był widoczny
+    // (przy max zoom kafelki są duże i element może być poza widokiem)
+    if (m_canvas) {
+        for (int i = 0; i < m_visible.size(); ++i) {
+            if (m_visible[i].path == path) {
+                QRect r    = m_canvas->item_rect(i);
+                int sv     = m_scroll->verticalScrollBar()->value();
+                int vp_h   = m_scroll->viewport()->height();
+                if (r.top() < sv || r.bottom() > sv + vp_h) {
+                    // Element poza widokiem — centruj go
+                    int new_sv = r.top() - (vp_h - r.height()) / 2;
+                    m_scroll->verticalScrollBar()->setValue(qMax(0, new_sv));
+                }
+                break;
+            }
+        }
     }
 
     m_click_path = path;
@@ -1148,6 +1200,99 @@ void ThumbnailGrid::on_context_menu(const QString& path, const QPoint& pos) {
         if (m_canvas) m_canvas->set_selected(m_selected);
     }
     emit context_menu(selected_paths(), pos);
+}
+
+
+void ThumbnailGrid::rotate_selected(int degrees) {
+    if (m_selected.isEmpty()) return;
+
+    const QStringList paths(m_selected.begin(), m_selected.end());
+    const QStringList raw_exts = {"arw","cr2","cr3","nef","nrw","orf",
+                                  "raf","rw2","dng","pef","srw","x3f"};
+
+    for (const QString& path : paths) {
+        // 1. Zaktualizuj metadane (rotation)
+        FileMetadata meta = MetaStore::load(path);
+        meta.path     = path;
+        meta.rotation = ((meta.rotation + degrees) % 360 + 360) % 360;
+        MetaStore::save(meta);
+        m_meta_cache[path] = meta;
+        if (m_canvas) m_canvas->set_metadata(path, meta);
+
+        QString ext = QFileInfo(path).suffix().toLower();
+        bool is_raw = raw_exts.contains(ext);
+
+        if (!is_raw) {
+            // Natychmiast obróć miniaturę w canvas — nie czekaj na zapis pliku
+            QString cache_key = path + "@" + QString::number(m_thumb_size);
+            QPixmap pix;
+            if (QPixmapCache::find(cache_key, &pix) && !pix.isNull()) {
+                QTransform t; t.rotate(degrees);
+                QPixmap rotated = pix.transformed(t, Qt::SmoothTransformation);
+                QPixmapCache::insert(cache_key, rotated);
+                if (m_canvas) m_canvas->set_pixmap(path, rotated);
+            }
+            QPixmapCache::remove("preview:" + path);
+
+            // Obrót fizyczny i zapis metadanych asynchronicznie w tle
+            int deg = degrees;
+            int thumb_sz = m_thumb_size;
+            ThumbCache* cache = m_worker ? m_worker->cache() : nullptr;
+            (void)QtConcurrent::run([path, deg, cache, thumb_sz]() {
+                QImage img(path);
+                if (img.isNull()) return;
+
+                QTransform t; t.rotate(deg);
+                QImage rotated = img.transformed(t, Qt::SmoothTransformation);
+
+                QString tmp_path = path + ".leye_rot_tmp";
+                if (!rotated.save(tmp_path)) {
+                    QFile::remove(tmp_path);
+                    return;
+                }
+
+                // Kopiuj EXIF/IPTC/XMP z oryginału, ustaw Orientation=1
+                try {
+                    auto src = Exiv2::ImageFactory::open(path.toStdString());
+                    src->readMetadata();
+                    auto dst = Exiv2::ImageFactory::open(tmp_path.toStdString());
+                    dst->readMetadata();
+                    dst->setExifData(src->exifData());
+                    dst->setIptcData(src->iptcData());
+                    dst->setXmpData(src->xmpData());
+                    dst->exifData()["Exif.Image.Orientation"] = uint16_t(1);
+                    dst->writeMetadata();
+                } catch (...) {}
+
+                QFile::remove(path);
+                QFile::rename(tmp_path, path);
+
+                // Wyczyść SQLite cache — przy kolejnym request ThumbWorker
+                // wygeneruje miniaturę z już obróconego pliku
+                if (cache) cache->remove(path);
+            });
+        } else {
+            // RAW (ARW itp.): nie modyfikujemy pliku.
+            // Pobierz aktualną miniaturę z QPixmapCache, obróć i zapisz z powrotem.
+            QString cache_key = path + "@" + QString::number(m_thumb_size);
+            QPixmap pix;
+            if (QPixmapCache::find(cache_key, &pix) && !pix.isNull()) {
+                QTransform t; t.rotate(degrees);
+                QPixmap rotated = pix.transformed(t, Qt::SmoothTransformation);
+                // Zaktualizuj RAM cache i canvas od razu
+                QPixmapCache::insert(cache_key, rotated);
+                if (m_canvas) m_canvas->set_pixmap(path, rotated);
+            } else {
+                // Miniatury nie ma w RAM — usuń SQLite cache żeby ThumbWorker
+                // wygenerował nową (uwzględni rotation przy następnym odczycie)
+                if (m_worker && m_worker->cache()) m_worker->cache()->remove(path);
+            }
+        }
+    }
+
+    // Przeładuj miniatury które nie były w RAM cache
+    for (const QString& path : paths)
+        if (m_worker) m_worker->request(path, 10);
 }
 
 void ThumbnailGrid::on_rename_completed(const QString& old_path, const QString& new_path)
@@ -1625,14 +1770,30 @@ void ThumbnailGrid::navigate_to_index(int idx) {
     m_primary = path;
     if (m_canvas) m_canvas->set_selected(m_selected);
 
-    // Przewijanie używając geometrii canvas
+    // Przewijanie: zależnie od rozmiaru kafelka
+    // - Mały zoom (wiele wierszy w viewport): minimalne przewinięcie o 1 wiersz
+    // - Duży zoom (1-2 wiersze w viewport): centruj gdy poza widokiem
     if (m_canvas) {
-        QRect r = m_canvas->item_rect(idx);
-        int sv   = m_scroll->verticalScrollBar()->value();
-        int vp_h = m_scroll->viewport()->height();
-        if (r.top() < sv || r.bottom() > sv + vp_h) {
+        QRect r    = m_canvas->item_rect(idx);
+        int sv     = m_scroll->verticalScrollBar()->value();
+        int vp_h   = m_scroll->viewport()->height();
+        int cell_h = virt_cell_size();
+
+        // Ile wierszy mieści się w viewport
+        int rows_in_view = (cell_h > 0) ? (vp_h / cell_h) : 10;
+
+        if (r.top() >= sv && r.bottom() <= sv + vp_h) {
+            // W pełni widoczny — nic nie rób
+        } else if (rows_in_view <= 2) {
+            // Duży zoom — centruj element
             int new_sv = r.top() - (vp_h - r.height()) / 2;
             m_scroll->verticalScrollBar()->setValue(qMax(0, new_sv));
+        } else if (r.top() < sv) {
+            // Wychodzi poza górę — przewiń żeby górna krawędź była widoczna
+            m_scroll->verticalScrollBar()->setValue(r.top());
+        } else {
+            // Wychodzi poza dół — przewiń żeby dolna krawędź była widoczna
+            m_scroll->verticalScrollBar()->setValue(r.bottom() - vp_h);
         }
     }
 

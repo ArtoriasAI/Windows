@@ -97,21 +97,20 @@ void BreadcrumbBar::rebuild_breadcrumbs() {
     QStringList parts = norm_path.split('/', Qt::SkipEmptyParts);
 
     // Buduj segmenty: każdy to przycisk z pełną ścieżką do tego miejsca
-    // Na Windows: "K:/Folder" → parts=["K:", "Folder"], cumulative zaczyna się od "K:"
-    // Na Linuksie: "/home/user" → parts=["home","user"], cumulative zaczyna "/" + part
+    // Na Windows: "K:/Folder" → parts=["K:", "Folder"], cumulative zaczyna od "K:"
+    // Na Linuksie: "/home/user" → parts=["home","user"], cumulative zaczyna od "/"
 #ifdef Q_OS_WIN
-    // Windows: pierwszy segment to litera dysku "K:" — nie dodawaj "/" przed nim
     QString cumulative = "";
     bool first_segment = true;
 #else
     QString cumulative = "";
-    bool first_segment = false;  // Linux zawsze dodaje "/"
+    bool first_segment = false;
 #endif
     for (int i = 0; i < parts.size(); ++i) {
         QString prev_path = cumulative;
 #ifdef Q_OS_WIN
         if (first_segment) {
-            cumulative = parts[i];  // np. "K:"
+            cumulative = parts[i];
             first_segment = false;
         } else {
             cumulative += "/" + parts[i];

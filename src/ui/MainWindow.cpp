@@ -77,12 +77,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     pal.setColor(QPalette::HighlightedText, Qt::white);
     qApp->setPalette(pal);
 #ifdef Q_OS_WIN
-    // Windows: jawnie ustaw kolor menubar i toolbara żeby nie było białych pasków
     setStyleSheet(
         "QMainWindow { background: #1e1e1e; }"
-        "QMenuBar { background: #1e1e1e; color: #ccc; border-bottom: 1px solid #333; }"
+        "QMainWindow::separator { background: #1e1e1e; width: 0; height: 0; }"
+        "QMenuBar { background: #1e1e1e; color: #ccc; border: none; border-bottom: 1px solid #333; margin: 0; padding: 0; }"
+        "QMenuBar::item { background: #1e1e1e; padding: 4px 8px; }"
         "QMenuBar::item:selected { background: #2d7dd2; color: #fff; }"
         "QStatusBar { background: #1a1a1a; color: #888; border-top: 1px solid #333; }"
+        "QToolBarExtension { background: #1e1e1e; border: none; }"
     );
 #endif
 
@@ -143,10 +145,13 @@ void MainWindow::setup_toolbar() {
     auto* tb = addToolBar("Główny");
     tb->setObjectName("toolbar_main");
     tb->setMovable(false);
+    tb->setFloatable(false);
     tb->setIconSize(QSize(16, 16));
+    tb->setContentsMargins(0, 0, 0, 0);
     tb->setStyleSheet(
-        "QToolBar { background: #1e1e1e; border: none; border-bottom: 1px solid #333; spacing: 2px; }"
+        "QToolBar { background: #1e1e1e; border: none; margin: 0; padding: 2px 4px; spacing: 2px; }"
         "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
+        "QToolBar::handle { image: none; width: 0; }"
     );
 
     // Wstecz / Przód
@@ -677,6 +682,16 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
                      this, &MainWindow::on_view_mode_changed);
     QObject::connect(m_filter_bar, &FilterBar::advanced_search_requested,
                      this, [this]() { action_advanced_search(); });
+    QObject::connect(m_filter_bar, &FilterBar::rotate_requested,
+                     this, [this, grid](int degrees) {
+        grid->rotate_selected(degrees);
+        // Wymuś odświeżenie podglądu — rotation zmieniła się dla zaznaczonych
+        const QStringList sel = grid->selected_paths();
+        if (!sel.isEmpty()) {
+            m_preview_panel->invalidate(sel.first());
+            m_preview_panel->load(sel.first());
+        }
+    });
 
     QString cleanLabelPath = path;
     while (cleanLabelPath.endsWith('/') && cleanLabelPath.size() > 1) cleanLabelPath.chop(1);

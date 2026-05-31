@@ -117,6 +117,7 @@ QImage ThumbJob::generate_raster(const QString& path, int size, bool full_qualit
 
 QImage ThumbJob::generate_psd(const QString& path, int size, bool full_quality)
 {
+    // Wyciąga embedded JPEG preview z pliku PSD/PSB (resource 0x040C)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return {};
     QByteArray header = f.read(26);
@@ -169,13 +170,11 @@ QImage ThumbJob::generate_psd(const QString& path, int size, bool full_quality)
 QImage ThumbJob::generate_raw(const QString& path, int size, bool full_quality) {
     LibRaw raw;
 #ifdef Q_OS_WIN
-    // Na Windows używaj wide string API — poprawna obsługa polskich znaków w ścieżce
     if (raw.open_file(reinterpret_cast<const wchar_t*>(path.utf16())) != LIBRAW_SUCCESS)
-        return {};
 #else
     if (raw.open_file(path.toLocal8Bit().constData()) != LIBRAW_SUCCESS)
-        return {};
 #endif
+        return {};
 
     // Zawsze najpierw próbuj embedded JPEG (szybko, niezależnie od jakości)
     if (raw.unpack_thumb() == LIBRAW_SUCCESS) {

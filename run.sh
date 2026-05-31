@@ -26,7 +26,8 @@ if [[ "${REBUILD:-0}" -eq 1 ]] || [[ ! -f "$BINARY" ]]; then
     mkdir -p "$SCRIPT_DIR/build"
     cd "$SCRIPT_DIR/build"
     cmake "$SCRIPT_DIR" -DCMAKE_BUILD_TYPE=Release --log-level=WARNING
-    make -j"$(nproc)"
+    # cmake --build zamiast make — działa poprawnie ze spacjami i nawiasami w ścieżce
+    cmake --build . --parallel "$(nproc)"
     cd "$SCRIPT_DIR"
     echo "[run.sh] Kompilacja zakończona."
 fi
@@ -36,16 +37,28 @@ if [[ ! -f "$BINARY" ]]; then
     exit 1
 fi
 
-# Instaluj/aktualizuj plik .desktop z pełną ścieżką do binarki
-# (wymagane przez DBus portal — Exec musi wskazywać na istniejący plik)
+# Instaluj/aktualizuj plik .desktop z pełną ścieżką do binarki i ikony
 mkdir -p "$DESKTOP_DIR"
+ICON_PATH="$SCRIPT_DIR/resources/icons/lapes-eye-256.png"
+
+# Zainstaluj ikony w ~/.local/share/icons/hicolor (wymagane przez KDE dla paska zadań)
+for SIZE in 16 22 24 32 48 64 128 256 512; do
+    ICON_SRC="$SCRIPT_DIR/resources/icons/lapes-eye-${SIZE}.png"
+    ICON_DST="$HOME/.local/share/icons/hicolor/${SIZE}x${SIZE}/apps"
+    if [ -f "$ICON_SRC" ]; then
+        mkdir -p "$ICON_DST"
+        cp "$ICON_SRC" "$ICON_DST/lapes-eye.png"
+    fi
+done
+gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+
 cat > "$DESKTOP_DST" << DESKTOP
 [Desktop Entry]
 Name=Lape's Eye
 GenericName=Media Browser
 Comment=Przeglądarka mediów dla Lape Photo Editor
-Exec=$BINARY %f
-Icon=image-viewer
+Exec="$BINARY" %f
+Icon=lapes-eye
 Type=Application
 Categories=Graphics;Photography;
 MimeType=image/jpeg;image/png;image/tiff;image/webp;image/x-raw;

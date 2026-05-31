@@ -41,6 +41,7 @@ class ThumbWorker : public QObject {
     Q_OBJECT
 public:
     explicit ThumbWorker(ThumbCache* cache, QObject* parent = nullptr);
+    ThumbCache* cache() const { return m_cache; }
     ~ThumbWorker();
 
     // Żąda miniatury — najpierw szybka, potem pełna jakość w tle

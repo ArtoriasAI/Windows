@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FullscreenViewer.h"
+#include "LapesEye/core/MetaStore.h"
 #include <QApplication>
 #include <QScreen>
 #include <QImageReader>
@@ -151,7 +152,12 @@ void FullscreenViewer::load_current() {
 
         if (raw_exts.contains(ext)) {
             LibRaw raw;
-            if (raw.open_file(path.toLocal8Bit().constData()) == LIBRAW_SUCCESS) {
+#ifdef Q_OS_WIN
+            bool raw_ok = (raw.open_file(reinterpret_cast<const wchar_t*>(path.utf16())) == LIBRAW_SUCCESS);
+#else
+            bool raw_ok = (raw.open_file(path.toLocal8Bit().constData()) == LIBRAW_SUCCESS);
+#endif
+            if (raw_ok) {
                 if (raw.unpack_thumb() == LIBRAW_SUCCESS) {
                     libraw_processed_image_t* thumb = raw.dcraw_make_mem_thumb();
                     if (thumb && thumb->type == LIBRAW_IMAGE_JPEG) {
@@ -196,10 +202,18 @@ void FullscreenViewer::load_current() {
         if (img.isNull()) return;
 
         // Skaluj tylko gdy obraz jest większy niż 2× ekran (np. medium format 100MP)
-        // Dla typowych aparatów (24MP, 6000×4000) — zostaw oryginalną rozdzielczość
         QSize limit = screen_size * 2;
         if (img.width() > limit.width() || img.height() > limit.height())
             img = img.scaled(limit, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+        // Zastosuj rotation z metadanych .leye (obrót ustawiony przez użytkownika)
+        int rotation = MetaStore::load(path).rotation;
+        if (rotation != 0) {
+            QTransform t;
+            t.rotate(rotation);
+            img = img.transformed(t, Qt::SmoothTransformation);
+        }
+
         QPixmap pix = QPixmap::fromImage(img);
         QMetaObject::invokeMethod(this, [this, pix, gen]() {
             if (gen != m_load_gen) return;  // stare żądanie — ignoruj

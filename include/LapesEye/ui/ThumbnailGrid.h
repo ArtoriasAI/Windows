@@ -143,6 +143,7 @@ signals:
 
 public slots:
     void on_rename_completed(const QString& old_path, const QString& new_path);
+    void rotate_selected(int degrees);  // +90 lub -90
 
 protected:
     void keyPressEvent(QKeyEvent* event)       override;

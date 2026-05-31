@@ -39,6 +39,7 @@ class PreviewPanel : public QWidget {
 public:
     explicit PreviewPanel(QWidget* parent = nullptr);
     void load(const QString& path);
+    void invalidate(const QString& path);  // wymuś reload przy następnym load()
     void rename_path(const QString& old_path, const QString& new_path);
     QString current_path() const { return m_current_path; }
     void set_histogram_visible(bool visible);

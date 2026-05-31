@@ -1,4 +1,8 @@
 #include "LapesEye/ui/ThumbnailCanvas.h"
+#if LEYE_HAS_GL
+#  include <QOpenGLContext>
+#  include <cmath>
+#endif
 #include "LapesEye/core/PerfTimer.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
 #include <QPainter>
@@ -36,7 +40,7 @@ static constexpr int NAME_H    = 15;
 static constexpr int STARS_H   = 12;
 
 ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
-    : QWidget(parent)
+    : TC_BASE(parent)
 {
     setMouseTracking(true);
     setFocusPolicy(Qt::NoFocus);
@@ -75,11 +79,19 @@ void ThumbnailCanvas::set_thumb_size(int size) {
 }
 
 void ThumbnailCanvas::set_selected(const QSet<QString>& selected) {
+#if LEYE_HAS_GL
+    for (const auto& p : selected) if (m_gpu.contains(p)) m_gpu[p].overlay_dirty = true;
+    for (const auto& p : m_selected) if (m_gpu.contains(p)) m_gpu[p].overlay_dirty = true;
+#endif
     m_selected = selected;
     update();
 }
 
 void ThumbnailCanvas::set_cut_paths(const QSet<QString>& cut) {
+#if LEYE_HAS_GL
+    for (const auto& p : cut)   if (m_gpu.contains(p)) m_gpu[p].overlay_dirty = true;
+    for (const auto& p : m_cut) if (m_gpu.contains(p)) m_gpu[p].overlay_dirty = true;
+#endif
     m_cut = cut;
     update();
 }
@@ -90,9 +102,10 @@ void ThumbnailCanvas::set_drag_active(bool active) {
 }
 
 void ThumbnailCanvas::set_pixmap(const QString& path, const QPixmap& pix) {
-    // Zawsze zapisuj do trwałego magazynu — przeżyje set_items()
-    if (!pix.isNull())
-        m_pixmap_store[path] = pix;
+    if (!pix.isNull()) m_pixmap_store[path] = pix;
+#if LEYE_HAS_GL
+    if (m_gpu.contains(path)) m_gpu[path].thumb_dirty = true;
+#endif
     for (int i = 0; i < m_items.size(); ++i) {
         if (m_items[i].file.path == path) {
             m_items[i].thumb = pix;
@@ -102,11 +115,23 @@ void ThumbnailCanvas::set_pixmap(const QString& path, const QPixmap& pix) {
     }
 }
 
+void ThumbnailCanvas::set_pixmap_no_update(const QString& path, const QPixmap& pix) {
+    if (!pix.isNull()) m_pixmap_store[path] = pix;
+#if LEYE_HAS_GL
+    if (m_gpu.contains(path)) m_gpu[path].thumb_dirty = true;
+#endif
+    for (int i = 0; i < m_items.size(); ++i)
+        if (m_items[i].file.path == path) { m_items[i].thumb = pix; return; }
+}
+
 void ThumbnailCanvas::set_metadata(const QString& path, const FileMetadata& meta) {
     for (int i = 0; i < m_items.size(); ++i) {
         if (m_items[i].file.path == path) {
             m_items[i].meta = meta;
             m_items[i].meta_loaded = true;
+#if LEYE_HAS_GL
+            if (m_gpu.contains(path)) m_gpu[path].overlay_dirty = true;
+#endif
             update(item_rect(i));
             return;
         }
@@ -202,6 +227,15 @@ int ThumbnailCanvas::index_at(const QPoint& pos) const {
 
 void ThumbnailCanvas::paintEvent(QPaintEvent* e) {
     PERF_SCOPE("paintEvent_canvas");
+#if LEYE_HAS_GL
+    // Gdy GL aktywny: QOpenGLWidget wywołuje paintGL() automatycznie.
+    // paintEvent nie powinien rysować przez QPainter — spowoduje konflikt z GL.
+    if (m_gl_ok) {
+        // QOpenGLWidget::paintEvent wywołuje paintGL() przez update() — nic nie robimy
+        return;
+    }
+    // Fallback: GL nie zainicjalizowany — rysuj przez QPainter
+#endif
     QPainter p(this);
     QRect clip = e->rect();
     p.fillRect(clip, QColor(0x1e, 0x1e, 0x1e));
@@ -531,5 +565,341 @@ void ThumbnailCanvas::cancel_rename() {
     m_rename_idx = -1;
     if (old >= 0) update(item_rect(old));
 }
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// DESTRUKTOR
+// ════════════════════════════════════════════════════════════════════════════
+ThumbnailCanvas::~ThumbnailCanvas() {
+#if LEYE_HAS_GL
+    makeCurrent();
+    gpu_delete_all();
+    if (auto* f = gl()) {
+        if (m_vao) { f->glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
+        if (m_vbo) { f->glDeleteBuffers(1, &m_vbo);      m_vbo = 0; }
+    }
+    delete m_prog; m_prog = nullptr;
+    doneCurrent();
+#endif
+}
+
+#if LEYE_HAS_GL
+// ════════════════════════════════════════════════════════════════════════════
+// OpenGL 4.5 DSA GPU RENDERER
+// Shadery GLSL 3.30 — jeden program dla kolorów i tekstur
+// DSA: glCreateTextures, glTextureStorage2D, glTextureSubImage2D,
+//      glBindTextureUnit, glCreateVertexArrays, glNamedBufferStorage
+// ════════════════════════════════════════════════════════════════════════════
+
+static const char* TC_VERT = R"GLSL(
+#version 330 core
+layout(location=0) in vec2 a_pos;
+layout(location=1) in vec2 a_uv;
+uniform mat4 u_mvp;
+out vec2 v_uv;
+void main() {
+    gl_Position = u_mvp * vec4(a_pos, 0.0, 1.0);
+    v_uv = a_uv;
+}
+)GLSL";
+
+static const char* TC_FRAG = R"GLSL(
+#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec4  u_color;
+uniform float u_use_tex;
+uniform float u_alpha;
+out vec4 frag;
+void main() {
+    vec4 c = (u_use_tex > 0.5) ? texture(u_tex, v_uv) : u_color;
+    c.a *= u_alpha;
+    frag = c;
+}
+)GLSL";
+
+static QColor gl_label_color(ColorLabel lc) {
+    if (lc == ColorLabel::None) return Qt::transparent;
+    auto labels = LabelConfig::load();
+    int idx = static_cast<int>(lc) - 1;
+    if (idx >= 0 && idx < labels.size()) return labels[idx].color;
+    return Qt::transparent;
+}
+
+ThumbnailCanvas::GL45* ThumbnailCanvas::gl() const {
+    if (!context()) return nullptr;
+    return QOpenGLVersionFunctionsFactory::get<GL45>(context());
+}
+
+bool ThumbnailCanvas::init_shader() {
+    m_prog = new QOpenGLShaderProgram(this);
+    if (!m_prog->addShaderFromSourceCode(QOpenGLShader::Vertex,   TC_VERT) ||
+        !m_prog->addShaderFromSourceCode(QOpenGLShader::Fragment, TC_FRAG) ||
+        !m_prog->link()) {
+        qWarning() << "ThumbnailCanvas GL shader error:" << m_prog->log();
+        delete m_prog; m_prog = nullptr;
+        return false;
+    }
+    m_u_mvp     = m_prog->uniformLocation("u_mvp");
+    m_u_color   = m_prog->uniformLocation("u_color");
+    m_u_use_tex = m_prog->uniformLocation("u_use_tex");
+    m_u_alpha   = m_prog->uniformLocation("u_alpha");
+    return true;
+}
+
+void ThumbnailCanvas::init_vao() {
+    auto* f = gl(); if (!f) return;
+    static const float Q[] = {
+        0.f,0.f, 0.f,0.f,  1.f,0.f, 1.f,0.f,
+        1.f,1.f, 1.f,1.f,  0.f,0.f, 0.f,0.f,
+        1.f,1.f, 1.f,1.f,  0.f,1.f, 0.f,1.f,
+    };
+    f->glCreateVertexArrays(1, &m_vao);
+    f->glCreateBuffers(1, &m_vbo);
+    f->glNamedBufferStorage(m_vbo, sizeof(Q), Q, 0);
+    f->glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, 4*sizeof(float));
+    f->glEnableVertexArrayAttrib(m_vao, 0);
+    f->glVertexArrayAttribFormat(m_vao, 0, 2, GL_FLOAT, GL_FALSE, 0);
+    f->glVertexArrayAttribBinding(m_vao, 0, 0);
+    f->glEnableVertexArrayAttrib(m_vao, 1);
+    f->glVertexArrayAttribFormat(m_vao, 1, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float));
+    f->glVertexArrayAttribBinding(m_vao, 1, 0);
+}
+
+void ThumbnailCanvas::initializeGL() {
+    auto* f = gl();
+    if (!f) { qWarning() << "ThumbnailCanvas: OpenGL 4.5 unavailable"; return; }
+    f->glClearColor(0x1e/255.f, 0x1e/255.f, 0x1e/255.f, 1.f);
+    f->glEnable(GL_BLEND);
+    f->glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    f->glDisable(GL_DEPTH_TEST);
+    if (!init_shader()) return;
+    init_vao();
+    m_gl_ok = true;
+    qDebug() << "ThumbnailCanvas: OpenGL 4.5 DSA aktywny";
+}
+
+void ThumbnailCanvas::resizeGL(int w, int h) {
+    m_proj.setToIdentity();
+    m_proj.ortho(0.f, (float)w, (float)h, 0.f, -1.f, 1.f);
+}
+
+// ── GPU texture upload (DSA) ─────────────────────────────────────────────────
+
+void ThumbnailCanvas::gpu_upload_thumb(GpuEntry& e, const QPixmap& pix) {
+    auto* f = gl(); if (!f) return;
+    QImage img = pix.toImage().convertToFormat(QImage::Format_RGBA8888);
+    const int w = img.width(), h = img.height();
+    if (e.thumb_id && e.thumb_src != pix.size()) {
+        f->glDeleteTextures(1, &e.thumb_id); e.thumb_id = 0;
+    }
+    if (!e.thumb_id) {
+        f->glCreateTextures(GL_TEXTURE_2D, 1, &e.thumb_id);
+        int mips = 1 + (int)std::log2((double)qMax(w,h));
+        f->glTextureStorage2D(e.thumb_id, mips, GL_RGBA8, w, h);
+        f->glTextureParameteri(e.thumb_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        f->glTextureParameteri(e.thumb_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        f->glTextureParameteri(e.thumb_id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        f->glTextureParameteri(e.thumb_id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    f->glTextureSubImage2D(e.thumb_id, 0, 0, 0, w, h,
+                           GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+    f->glGenerateTextureMipmap(e.thumb_id);
+    e.thumb_src   = pix.size();
+    e.thumb_dirty = false;
+}
+
+void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
+                                          int idx, int cw, int ch) {
+    QImage img(cw, ch, QImage::Format_RGBA8888);
+    img.fill(Qt::transparent);
+    const auto& item = m_items[idx];
+    bool sel = m_selected.contains(item.file.path) && !m_drag_active;
+    bool cut = m_cut.contains(item.file.path);
+    int avail_h = ch - 2*CELL_VPAD - NAME_H - STARS_H - 3;
+    QRect ir(CELL_PAD, CELL_VPAD, cw-2*CELL_PAD, avail_h);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    // Color label ramka
+    if (item.meta_loaded && item.meta.color_label != ColorLabel::None) {
+        p.setPen(QPen(gl_label_color(item.meta.color_label), 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRectF(ir).adjusted(1,1,-1,-1), 4, 4);
+    }
+    // Cut overlay
+    if (cut) { p.setPen(Qt::NoPen); p.setBrush(QColor(0,0,0,100));
+               p.drawRoundedRect(QRectF(0,0,cw,ch),6,6); }
+    // Badge
+    if (item.file.is_raw || item.file.is_psd) {
+        QString txt = item.file.is_raw ? "RAW" : "PSD";
+        QColor col  = item.file.is_raw ? QColor(0xE5,0x89,0x20) : QColor(0x20,0x6E,0xE5);
+        QFont bf = p.font(); bf.setPixelSize(9); bf.setBold(true); p.setFont(bf);
+        QFontMetrics fm(bf);
+        int bw=fm.horizontalAdvance(txt)+4, bh=13;
+        QRect br(ir.right()-bw-2, ir.top()+2, bw, bh);
+        p.fillRect(br, col); p.setPen(Qt::white); p.drawText(br,Qt::AlignCenter,txt);
+    }
+    // Nazwa
+    {
+        QFont nf=p.font(); nf.setPixelSize(11); nf.setBold(false); p.setFont(nf);
+        QFontMetrics fm(nf);
+        QRect nr(CELL_PAD, ir.bottom()+3, cw-2*CELL_PAD, NAME_H);
+        p.setPen(sel ? Qt::white : QColor(0xCC,0xCC,0xCC));
+        p.drawText(nr, Qt::AlignHCenter|Qt::AlignVCenter,
+                   fm.elidedText(item.file.name, Qt::ElideMiddle, nr.width()));
+        // Gwiazdki
+        if (item.meta_loaded && item.meta.rating > 0 && !item.file.is_dir) {
+            static const QString S5="\u2605\u2605\u2605\u2605\u2605";
+            static const QString SS[]={{},"\u2606\u2606\u2606\u2606\u2606",
+                "\u2605\u2606\u2606\u2606\u2606","\u2605\u2605\u2606\u2606\u2606",
+                "\u2605\u2605\u2605\u2606\u2606","\u2605\u2605\u2605\u2605\u2606"};
+            QFont sf=nf; sf.setPixelSize(9); p.setFont(sf);
+            p.setPen(QColor(0xFF,0xD7,0x00));
+            QRect sr(CELL_PAD, nr.bottom()+1, cw-2*CELL_PAD, STARS_H);
+            int r=item.meta.rating;
+            p.drawText(sr,Qt::AlignHCenter|Qt::AlignVCenter,
+                       r==5?S5:(r>=1&&r<=4?SS[r]:QString()));
+        }
+    }
+    p.end();
+    auto* f=gl(); if(!f) return;
+    if (e.overlay_id && (e.ov_w!=cw||e.ov_h!=ch)) {
+        f->glDeleteTextures(1,&e.overlay_id); e.overlay_id=0;
+    }
+    if (!e.overlay_id) {
+        f->glCreateTextures(GL_TEXTURE_2D,1,&e.overlay_id);
+        f->glTextureStorage2D(e.overlay_id,1,GL_RGBA8,cw,ch);
+        f->glTextureParameteri(e.overlay_id,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        f->glTextureParameteri(e.overlay_id,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        f->glTextureParameteri(e.overlay_id,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        f->glTextureParameteri(e.overlay_id,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    }
+    f->glTextureSubImage2D(e.overlay_id,0,0,0,cw,ch,
+                           GL_RGBA,GL_UNSIGNED_BYTE,img.constBits());
+    e.overlay_dirty=false; e.ov_w=cw; e.ov_h=ch;
+}
+
+void ThumbnailCanvas::gpu_delete_entry(GpuEntry& e) {
+    auto* f=gl(); if(!f) return;
+    if (e.thumb_id)   { f->glDeleteTextures(1,&e.thumb_id);   e.thumb_id=0;   }
+    if (e.overlay_id) { f->glDeleteTextures(1,&e.overlay_id); e.overlay_id=0; }
+}
+
+void ThumbnailCanvas::gpu_delete_all() {
+    for (auto& e : m_gpu) gpu_delete_entry(e);
+    m_gpu.clear();
+}
+
+// ── Rendering helpers ────────────────────────────────────────────────────────
+
+void ThumbnailCanvas::gl_draw_quad_color(GL45* f,
+    float x, float y, float w, float h, float r, float g, float b, float a) {
+    QMatrix4x4 m; m.translate(x,y); m.scale(w,h);
+    m_prog->setUniformValue(m_u_mvp,     m_proj*m);
+    m_prog->setUniformValue(m_u_use_tex, 0.f);
+    m_prog->setUniformValue(m_u_color,   QVector4D(r,g,b,a));
+    m_prog->setUniformValue(m_u_alpha,   1.f);
+    f->glDrawArrays(GL_TRIANGLES,0,6);
+}
+
+void ThumbnailCanvas::gl_draw_quad_tex(GL45* f,
+    float x, float y, float w, float h, GLuint tex, float alpha) {
+    QMatrix4x4 m; m.translate(x,y); m.scale(w,h);
+    m_prog->setUniformValue(m_u_mvp,     m_proj*m);
+    m_prog->setUniformValue(m_u_use_tex, 1.f);
+    m_prog->setUniformValue(m_u_alpha,   alpha);
+    m_prog->setUniformValue("u_tex",     0);
+    f->glBindTextureUnit(0, tex);  // DSA: bez glActiveTexture + glBindTexture
+    f->glDrawArrays(GL_TRIANGLES,0,6);
+    f->glBindTextureUnit(0,0);
+}
+
+void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
+    const auto& item = m_items[idx];
+    QRect r = item_rect(idx);
+    bool sel     = m_selected.contains(item.file.path) && !m_drag_active;
+    bool hovered = (idx == m_hovered_idx);
+
+    // Tło
+    QColor bg;
+    if (sel) bg = QColor(0x2D,0x7D,0xD2);
+    else if (item.meta_loaded && item.meta.color_label!=ColorLabel::None) {
+        QColor lc=gl_label_color(item.meta.color_label);
+        bg=QColor(lc.red()/4,lc.green()/4,lc.blue()/4);
+        if (hovered) bg=bg.lighter(140);
+    } else bg = hovered ? QColor(0x3A,0x3A,0x3A) : QColor(0x28,0x28,0x28);
+
+    gl_draw_quad_color(f, r.x(),r.y(),r.width(),r.height(),
+                       bg.redF(),bg.greenF(),bg.blueF());
+
+    // Obszar miniatury
+    int aw=r.width()-2*CELL_PAD, ah=r.height()-2*CELL_VPAD-NAME_H-STARS_H-3;
+    int ix=r.x()+CELL_PAD, iy=r.y()+CELL_VPAD;
+    gl_draw_quad_color(f, ix,iy,aw,ah, 0x22/255.f,0x22/255.f,0x22/255.f);
+
+    // Miniatura
+    if (!item.thumb.isNull()) {
+        auto& e = m_gpu[item.file.path];
+        if (e.thumb_dirty || e.thumb_src!=item.thumb.size())
+            gpu_upload_thumb(e, item.thumb);
+        if (e.thumb_id) {
+            QSize ts=item.thumb.size().scaled(QSize(aw,ah),Qt::KeepAspectRatio);
+            float ox=ix+(aw-ts.width())/2.f, oy=iy+(ah-ts.height())/2.f;
+            gl_draw_quad_tex(f, ox,oy,ts.width(),ts.height(), e.thumb_id);
+        }
+    }
+
+    // Overlay
+    auto& e=m_gpu[item.file.path];
+    int cw=r.width(), ch=r.height();
+    if (e.overlay_dirty||!e.overlay_id||e.ov_w!=cw||e.ov_h!=ch)
+        gpu_render_overlay(item.file.path, e, idx, cw, ch);
+    if (e.overlay_id)
+        gl_draw_quad_tex(f, r.x(),r.y(),cw,ch, e.overlay_id);
+}
+
+// ── paintGL — główna pętla renderowania ──────────────────────────────────────
+
+void ThumbnailCanvas::paintGL() {
+    PERF_SCOPE("paintGL_canvas");
+    auto* f=gl();
+    if (!f||!m_gl_ok||!m_prog||!m_vao) return;
+
+    // Tło
+    f->glClear(GL_COLOR_BUFFER_BIT);
+    if (m_items.isEmpty()) return;
+
+    int ch=cell_size(), c=cols();
+    if (c==0||ch==0) return;
+
+    // Frustum culling — rysuj tylko widoczne wiersze
+    // W QOpenGLWidget rect() = viewport (nie cały canvas)
+    // Scroll = pozycja w QScrollArea (y() < 0 gdy zscrollowane)
+    // Tutaj: widget jest pełnej wirtualnej wysokości (setFixedHeight)
+    // QScrollArea przesuwa go — clip rect od QPaintEvent wskazuje widoczną część
+    // Używamy stałej projekcji (0,0)→(w,h) bez scroll offset —
+    // QScrollArea sam przesuwa widget przez geometry
+    const QRect vp = rect();
+    const int row_h = ch + CELL_GAP;
+    const int first_r = qMax(0, (vp.top() - CELL_GAP) / row_h);
+    const int n_rows  = (m_items.size()+c-1)/c;
+    const int last_r  = qMin(n_rows-1, (vp.bottom()) / row_h + 1);
+
+    m_prog->bind();
+    f->glBindVertexArray(m_vao);
+
+    for (int row=first_r; row<=last_r; ++row)
+        for (int col=0; col<c; ++col) {
+            int idx=row*c+col;
+            if (idx>=m_items.size()) break;
+            gl_draw_item(f, idx);
+        }
+
+    f->glBindVertexArray(0);
+    m_prog->release();
+}
+
+#endif // LEYE_HAS_GL
 
 } // namespace LapesEye

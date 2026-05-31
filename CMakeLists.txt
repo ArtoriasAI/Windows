@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(LapesEye VERSION 0.5.0 LANGUAGES CXX)
+project(LapesEye VERSION 0.5.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,6 +29,7 @@ endif()
 find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core Gui Widgets Concurrent Network Sql PrintSupport
 )
+find_package(Qt6 QUIET COMPONENTS OpenGL OpenGLWidgets)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
@@ -146,6 +147,15 @@ target_link_libraries(lapes-eye PRIVATE
     ${EXIV2_LIBRARIES}
     ${LIBRAW_LIBRARIES}
 )
+
+if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets)
+    target_link_libraries(lapes-eye PRIVATE Qt6::OpenGL Qt6::OpenGLWidgets)
+    target_compile_definitions(lapes-eye PRIVATE LEYE_HAS_GL=1)
+    message(STATUS "  GPU:          OpenGL 4.5 DSA (QOpenGLWidget)")
+else()
+    target_compile_definitions(lapes-eye PRIVATE LEYE_HAS_GL=0)
+    message(STATUS "  GPU:          niedostępny (fallback QPainter)")
+endif()
 
 if(NOT WIN32)
     target_link_options(lapes-eye PRIVATE -rdynamic)

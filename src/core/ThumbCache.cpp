@@ -156,6 +156,15 @@ void ThumbCache::put(const QString& path, const QImage& thumb,
     q.exec();
 }
 
+void ThumbCache::remove(const QString& path) {
+    QMutexLocker lk(&m_mutex);
+    if (!m_open) return;
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM thumbnails WHERE path = ?");
+    q.addBindValue(path);
+    q.exec();
+}
+
 void ThumbCache::purge_missing() {
     if (!m_open) return;
     QMutexLocker lock(&m_mutex);

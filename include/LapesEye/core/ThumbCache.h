@@ -23,6 +23,7 @@ public:
     // Zapisuje QImage do cache (jako PNG blob)
     void put(const QString& path, const QImage& thumb, int orig_w, int orig_h);
 
+    void   remove(const QString& path);   // usuń wpis z cache (np. po obrocie)
     void   purge_missing();
     double db_size_mb() const;
     // Przenosi wpis w cache pod nową ścieżkę (po rename pliku)

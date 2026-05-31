@@ -18,6 +18,7 @@ signals:
     void filter_changed(const GridFilter& filter);
     void view_mode_changed(CompareMode mode);
     void advanced_search_requested();
+    void rotate_requested(int degrees);  // -90 lub +90
 
 private:
     void emit_filter();
@@ -33,6 +34,8 @@ private:
     QToolButton* m_reject_only = nullptr;
     QToolButton* m_raw_only    = nullptr;
     QToolButton* m_psd_only    = nullptr;
+    QToolButton* m_rotate_ccw  = nullptr;
+    QToolButton* m_rotate_cw   = nullptr;
     QLineEdit*   m_search      = nullptr;
     QComboBox*   m_sort_combo  = nullptr;
 

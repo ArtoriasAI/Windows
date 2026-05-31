@@ -72,6 +72,7 @@ struct FileMetadata {
     QString     note;
 
     // Zarezerwowane dla przyszłej integracji z ACR w Lape
+    int         rotation    = 0;  // 0/90/180/270 — obrót zapisywany w .leye
     QJsonObject lape_edits;
 
     bool        loaded_exif  = false;

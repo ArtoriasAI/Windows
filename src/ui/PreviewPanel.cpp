@@ -1,4 +1,6 @@
 #include "LapesEye/ui/PreviewPanel.h"
+#include "LapesEye/core/MetaStore.h"
+#include <QTransform>
 #include "LapesEye/core/FileScanner.h"
 #include <QVBoxLayout>
 #include <QImageReader>
@@ -210,6 +212,14 @@ static QImage load_raw_preview(const QString& path, int target) {
     return result;
 }
 
+void PreviewPanel::invalidate(const QString& path) {
+    // Wyczyść cache podglądu i reset current_path → następny load() odświeży
+    QPixmapCache::remove("preview:" + path);
+    if (m_current_path == path) {
+        m_current_path.clear();
+    }
+}
+
 void PreviewPanel::load(const QString& path) {
     if (path.isEmpty()) {
         m_view->set_image(QImage());
@@ -223,7 +233,14 @@ void PreviewPanel::load(const QString& path) {
     QPixmap cached;
     if (QPixmapCache::find(key, &cached) && !cached.isNull()) {
         m_current_path = path;
-        m_view->set_image(cached.toImage());
+        // Zastosuj rotation z metadanych
+        int rot = MetaStore::load(path).rotation;
+        QImage ci = cached.toImage();
+        if (rot != 0) {
+            QTransform t; t.rotate(rot);
+            ci = ci.transformed(t, Qt::SmoothTransformation);
+        }
+        m_view->set_image(ci);
         return;
     }
 
@@ -263,6 +280,14 @@ void PreviewPanel::load(const QString& path) {
         }
 
         if (img.isNull()) return;
+
+        // Zastosuj rotation z metadanych .leye
+        int rotation = MetaStore::load(path).rotation;
+        if (rotation != 0) {
+            QTransform t; t.rotate(rotation);
+            img = img.transformed(t, Qt::SmoothTransformation);
+        }
+
         QPixmap pix = QPixmap::fromImage(img);
         QMetaObject::invokeMethod(this, [this, pix, img, info, path, gen]() {
             if (gen < m_load_gen && m_current_path != path) return;

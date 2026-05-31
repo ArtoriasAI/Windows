@@ -7,7 +7,6 @@
 #include <QJsonArray>
 #include <QStandardPaths>
 #include <QRegularExpression>
-#include <QtGlobal>
 
 // libexiv2
 #include <exiv2/exiv2.hpp>
@@ -54,7 +53,6 @@ ExifData MetaStore::read_exif(const QString& path) {
     ExifData out;
     try {
 #ifdef Q_OS_WIN
-        // Na Windows Exiv2 wymaga UTF-8 dla polskich znaków w ścieżce
         std::string utf8_path = path.toUtf8().toStdString();
         auto img = Exiv2::ImageFactory::open(utf8_path);
 #else
@@ -133,8 +131,12 @@ ExifData MetaStore::read_exif(const QString& path) {
                 out.has_gps = true;
             }
         }
+    } catch (const Exiv2::Error& e) {
+        qWarning() << "Exiv2 error for" << path << ":" << e.what();
+    } catch (const std::exception& e) {
+        qWarning() << "std::exception reading EXIF for" << path << ":" << e.what();
     } catch (...) {
-        // Plik bez EXIF (PNG, RAW bez danych, etc.) — zwróć pusty struct
+        qWarning() << "Unknown exception reading EXIF for" << path;
     }
     return out;
 }
@@ -185,6 +187,7 @@ static bool write_catalog(const QString& catalog_path, const QJsonObject& catalo
 
 static void apply_meta_from_json(FileMetadata& meta, const QJsonObject& obj) {
     meta.rating      = obj["rating"].toInt(0);
+    meta.rotation    = obj["rotation"].toInt(0);
     meta.color_label = MetaStore::color_label_from_name(obj["color_label"].toString());
     meta.note        = obj["note"].toString();
     meta.lape_edits  = obj["lape_edits"].toObject();
@@ -198,6 +201,7 @@ static void apply_meta_from_json(FileMetadata& meta, const QJsonObject& obj) {
 static QJsonObject meta_to_json(const FileMetadata& meta) {
     QJsonObject obj;
     obj["rating"]      = meta.rating;
+    if (meta.rotation != 0) obj["rotation"] = meta.rotation;
     obj["color_label"] = MetaStore::color_label_name(meta.color_label);
     obj["flag"]        = MetaStore::pick_flag_name(meta.pick_flag);
     obj["note"]        = meta.note;
@@ -266,6 +270,7 @@ bool MetaStore::save(const FileMetadata& meta) {
 
     // Nie zapisuj pustego wpisu (domyślne wartości) — oszczędza miejsce
     bool has_data = meta.rating != 0
+                 || meta.rotation != 0
                  || meta.color_label != ColorLabel::None
                  || meta.pick_flag != PickFlag::None
                  || !meta.note.isEmpty()

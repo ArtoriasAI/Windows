@@ -55,6 +55,34 @@ void FilterBar::setup_ui() {
 
     layout->addStretch();
 
+    // ── Obrót ─────────────────────────────────────────────────────────────────
+    // Przyciski zgodne ze stylem Bridge: małe, kwadratowe, ikony Unicode
+    auto make_rot = [&](const QString& icon, const QString& tip) -> QToolButton* {
+        auto* b = new QToolButton(this);
+        b->setText(icon);
+        b->setToolTip(tip);
+        b->setFixedSize(28, 28);
+        b->setAutoRaise(true);
+        b->setStyleSheet(R"(
+            QToolButton {
+                font-size: 16px; color: #ccc;
+                background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
+            }
+            QToolButton:hover   { background: #383838; border-color: #888; }
+            QToolButton:pressed { background: #1d5fa0; border-color: #2D7DD2; color: #fff; }
+        )");
+        return b;
+    };
+    // ↶ = ↶ zakrzywiona strzałka w lewo (CCW), ↷ = ↷ w prawo (CW)
+    m_rotate_ccw = make_rot("↶", "Obróć w lewo (-90°)");
+    m_rotate_cw  = make_rot("↷", "Obróć w prawo (+90°)");
+    layout->addWidget(m_rotate_ccw);
+    layout->addWidget(m_rotate_cw);
+    layout->addSpacing(6);
+
+    connect(m_rotate_ccw, &QToolButton::clicked, this, [this]{ emit rotate_requested(-90); });
+    connect(m_rotate_cw,  &QToolButton::clicked, this, [this]{ emit rotate_requested(+90); });
+
     // ── Szukaj ────────────────────────────────────────────────────────────────
     m_search = new QLineEdit(this);
     m_search->setPlaceholderText("Szukaj nazwy...");

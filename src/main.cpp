@@ -3,16 +3,30 @@
 #include "LapesEye/ui/ThumbnailGrid.h"
 
 #include <QApplication>
+#include <QSurfaceFormat>
 #include <QDir>
 #include <QIcon>
 #include <QStandardPaths>
 #include <QTimer>
 
 int main(int argc, char* argv[]) {
+#if LEYE_HAS_GL
+    // Wymuś GLX (nie EGL) — OpenGL 4.5 Core Profile niedostępny przez EGL na X11
+    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
+        qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
+    // Domyślny format GL dla wszystkich QOpenGLWidget
+    QSurfaceFormat fmt;
+    fmt.setVersion(4, 5);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    fmt.setSwapInterval(1);
+    QSurfaceFormat::setDefaultFormat(fmt);
+#endif
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
     app.setOrganizationName("Lape");
-    app.setApplicationVersion("0.4.0");
+    app.setApplicationVersion("0.5.2");
     app.setDesktopFileName("lapes-eye");
 
     // Ikona aplikacji — wielorozdzielcza z QRC
