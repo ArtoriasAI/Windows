@@ -3,6 +3,7 @@
 #include "LapesEye/ui/ThumbnailGrid.h"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QDir>
 #include <QIcon>
@@ -11,10 +12,12 @@
 
 int main(int argc, char* argv[]) {
 #if LEYE_HAS_GL
-    // Wymuś GLX (nie EGL) — OpenGL 4.5 Core Profile niedostępny przez EGL na X11
-    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
-        qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
-    // Domyślny format GL dla wszystkich QOpenGLWidget
+#ifdef Q_OS_WIN
+    // Windows: wymuś natywny OpenGL zamiast ANGLE (DirectX emulation)
+    // ANGLE nie obsługuje OpenGL 4.5 Core Profile
+    // setAttribute musi być PRZED QApplication
+    QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+    qputenv("QT_OPENGL", "desktop");
     QSurfaceFormat fmt;
     fmt.setVersion(4, 5);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
@@ -22,6 +25,18 @@ int main(int argc, char* argv[]) {
     fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     fmt.setSwapInterval(1);
     QSurfaceFormat::setDefaultFormat(fmt);
+#else
+    // Linux: Wymuś GLX (nie EGL) — OpenGL 4.5 Core Profile niedostępny przez EGL na X11
+    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
+        qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
+    QSurfaceFormat fmt;
+    fmt.setVersion(4, 5);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    fmt.setSwapInterval(1);
+    QSurfaceFormat::setDefaultFormat(fmt);
+#endif
 #endif
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
