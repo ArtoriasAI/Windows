@@ -78,14 +78,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     qApp->setPalette(pal);
 #ifdef Q_OS_WIN
     setStyleSheet(
-        "QMainWindow { background: #1e1e1e; }"
-        "QMainWindow::separator { background: #1e1e1e; width: 0; height: 0; }"
-        "QMenuBar { background: #1e1e1e; color: #ccc; border: none; border-bottom: 1px solid #333; margin: 0; padding: 0; }"
+        "QMainWindow { background: #1e1e1e; margin: 0; padding: 0; }"
+        "QMainWindow::separator { background: #1e1e1e; width: 0px; height: 0px; max-width: 0px; max-height: 0px; }"
+        "QMenuBar { background: #1e1e1e; color: #ccc; border: none; margin: 0; padding: 0; }"
         "QMenuBar::item { background: #1e1e1e; padding: 4px 8px; }"
         "QMenuBar::item:selected { background: #2d7dd2; color: #fff; }"
         "QStatusBar { background: #1a1a1a; color: #888; border-top: 1px solid #333; }"
         "QToolBarExtension { background: #1e1e1e; border: none; }"
+        "QToolBar { background: #1e1e1e; border: none; border-bottom: 1px solid #2a2a2a; margin: 0; padding: 1px 4px; }"
+        "QToolBar::handle { image: none; width: 0; height: 0; }"
+        "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
     );
+    // Usuń marginesy centralnego widgetu
+    if (centralWidget()) centralWidget()->setContentsMargins(0,0,0,0);
 #endif
 
     m_thumb_cache  = std::make_unique<ThumbCache>();

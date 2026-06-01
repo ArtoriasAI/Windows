@@ -1022,6 +1022,19 @@ void ThumbnailGrid::resizeEvent(QResizeEvent* e) {
     m_resize_timer->start();
 }
 
+void ThumbnailGrid::showEvent(QShowEvent* e) {
+    QWidget::showEvent(e);
+#ifdef Q_OS_WIN
+    // Windows: viewport może raportować zerową szerokość przy pierwszym show
+    // Wymuszamy rebuild po tym jak layout jest w pełni obliczony
+    if (!m_all_files.isEmpty()) {
+        QTimer::singleShot(50, this, [this]() {
+            virt_full_rebuild();
+        });
+    }
+#endif
+}
+
 void ThumbnailGrid::focusOutEvent(QFocusEvent* e) {
     QWidget::focusOutEvent(e);
     // Wyczyść rubber band gdy tracimy fokus (np. przy otwarciu menu)
