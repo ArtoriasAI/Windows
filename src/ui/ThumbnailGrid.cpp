@@ -437,6 +437,8 @@ void ThumbnailGrid::virt_full_rebuild() {
     m_scroll->show();
 
     // Zaktualizuj canvas — przekazuje listę plików do rysowania
+    // set_explicit_width PRZED setFixedWidth — cols() używa go zanim Qt przetworzy resize
+    m_canvas->set_explicit_width(w);
     m_canvas->setFixedWidth(w);
     m_canvas->set_thumb_size(m_thumb_size);
     sync_canvas();
