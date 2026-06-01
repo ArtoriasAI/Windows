@@ -78,19 +78,45 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     qApp->setPalette(pal);
 #ifdef Q_OS_WIN
     setStyleSheet(
-        "QMainWindow { background: #1e1e1e; margin: 0; padding: 0; }"
-        "QMainWindow::separator { background: #1e1e1e; width: 0px; height: 0px; max-width: 0px; max-height: 0px; }"
+        // Główne okno
+        "QMainWindow { background: #1e1e1e; }"
+        "QMainWindow::separator { background: #333; width: 4px; height: 4px; }"
+        "QMainWindow::separator:hover { background: #2d7dd2; }"
+        // Menu
         "QMenuBar { background: #1e1e1e; color: #ccc; border: none; margin: 0; padding: 0; }"
         "QMenuBar::item { background: #1e1e1e; padding: 4px 8px; }"
         "QMenuBar::item:selected { background: #2d7dd2; color: #fff; }"
+        "QMenu { background: #252535; color: #ccc; border: 1px solid #444; }"
+        "QMenu::item:selected { background: #2d7dd2; color: #fff; }"
+        // Status bar
         "QStatusBar { background: #1a1a1a; color: #888; border-top: 1px solid #333; }"
+        // Toolbar
         "QToolBarExtension { background: #1e1e1e; border: none; }"
         "QToolBar { background: #1e1e1e; border: none; border-bottom: 1px solid #2a2a2a; margin: 0; padding: 1px 4px; }"
         "QToolBar::handle { image: none; width: 0; height: 0; }"
         "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
+        // Dock widgety — titlebar i separator
+        "QDockWidget { background: #1e1e1e; color: #ccc; titlebar-close-icon: none; }"
+        "QDockWidget::title { background: #252535; color: #aaa; padding: 4px 8px; border-bottom: 1px solid #333; }"
+        "QDockWidget::close-button, QDockWidget::float-button { background: transparent; border: none; }"
+        "QDockWidget::close-button:hover, QDockWidget::float-button:hover { background: #444; }"
+        // Tab bar — tło między zakładkami
+        "QTabBar { background: #1e1e1e; }"
+        "QTabBar::tab { background: #2a2a2a; color: #aaa; padding: 5px 14px; margin-right: 2px; }"
+        "QTabBar::tab:selected { background: #1e1e1e; color: #fff; border-bottom: 2px solid #2D7DD2; }"
+        "QTabBar::tab:hover { background: #333; color: #ddd; }"
+        "QTabWidget { background: #1e1e1e; }"
+        "QTabWidget::pane { border: none; background: #1e1e1e; margin: 0; padding: 0; }"
+        // Scrollbary
+        "QScrollBar:vertical { background: #252535; width: 8px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: #555; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::handle:vertical:hover { background: #777; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        "QScrollBar:horizontal { background: #252535; height: 8px; margin: 0; }"
+        "QScrollBar::handle:horizontal { background: #555; border-radius: 4px; min-width: 20px; }"
+        "QScrollBar::handle:horizontal:hover { background: #777; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
     );
-    // Usuń marginesy centralnego widgetu
-    if (centralWidget()) centralWidget()->setContentsMargins(0,0,0,0);
 #endif
 
     m_thumb_cache  = std::make_unique<ThumbCache>();
@@ -153,11 +179,6 @@ void MainWindow::setup_toolbar() {
     tb->setFloatable(false);
     tb->setIconSize(QSize(16, 16));
     tb->setContentsMargins(0, 0, 0, 0);
-    tb->setStyleSheet(
-        "QToolBar { background: #1e1e1e; border: none; margin: 0; padding: 2px 4px; spacing: 2px; }"
-        "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
-        "QToolBar::handle { image: none; width: 0; }"
-    );
 
     // Wstecz / Przód
     m_act_back = new QAction("◀", tb);
@@ -254,8 +275,8 @@ void MainWindow::setup_panels() {
     left_dock->setFeatures(QDockWidget::DockWidgetMovable |
                            QDockWidget::DockWidgetFloatable |
                            QDockWidget::DockWidgetClosable);
-    left_dock->setMinimumWidth(180);
-    left_dock->setMaximumWidth(280);
+    left_dock->setMinimumWidth(150);
+    left_dock->setMaximumWidth(16777215);  // brak limitu
     // Problem 5: QDockWidget może pochłaniać drag eventy — wymuś acceptDrops
     left_dock->setAcceptDrops(true);
     addDockWidget(Qt::LeftDockWidgetArea, left_dock);
@@ -281,7 +302,7 @@ void MainWindow::setup_panels() {
     m_preview_dock->setFeatures(QDockWidget::DockWidgetMovable |
                                 QDockWidget::DockWidgetFloatable |
                                 QDockWidget::DockWidgetClosable);
-    m_preview_dock->setMinimumWidth(230);
+    m_preview_dock->setMinimumWidth(180);
     addDockWidget(Qt::RightDockWidgetArea, m_preview_dock);
 
     // Prawy dock dół: metadane
