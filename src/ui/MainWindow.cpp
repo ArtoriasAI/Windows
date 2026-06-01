@@ -436,13 +436,17 @@ void MainWindow::setup_tabs() {
             on_folder_in_new_window(folder);
     });
     m_tabs->setStyleSheet(R"(
-        QTabWidget        { background: #1e1e1e; }
-        QTabWidget::pane  { border: none; background: #1e1e1e; margin: 0; padding: 0; }
+        QTabWidget        { background: #1e1e1e; border: none; }
+        QTabWidget::pane  { border: none; background: #1e1e1e; margin: 0; padding: 0; top: 0px; }
+        QTabBar            { background: #1e1e1e; border: none; qproperty-drawBase: 0; }
         QTabBar::tab       { background: #2a2a2a; color: #aaa;
-                             padding: 5px 14px; margin-right: 2px; min-width: 80px; }
+                             padding: 5px 14px; margin-right: 2px; min-width: 80px;
+                             border: none; border-bottom: 1px solid #333; }
         QTabBar::tab:selected { background: #1e1e1e; color: #fff;
                                 border-bottom: 2px solid #2D7DD2; }
         QTabBar::tab:hover    { background: #333; color: #ddd; }
+        QTabBar::scroller  { background: #1e1e1e; }
+        QTabBar QToolButton { background: #1e1e1e; border: none; color: #aaa; }
     )");
 
     auto* new_tab_btn = new QToolButton(m_tabs);
