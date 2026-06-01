@@ -110,7 +110,8 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
     m_scroll->setFrameShape(QFrame::NoFrame);
     m_scroll->setFrameShadow(QFrame::Plain);
     m_scroll->setLineWidth(0);
-    m_scroll->setStyleSheet("QScrollArea { border: none; background: transparent; }");
+    m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setAcceptDrops(true);   // ThumbnailGrid obsługuje drop przez event filter
     m_scroll->viewport()->setAcceptDrops(true);
     m_canvas->installEventFilter(this);  // przechwytuj drag eventy z canvas
@@ -432,8 +433,8 @@ void ThumbnailGrid::virt_full_rebuild() {
     if (w < 10 && parentWidget()) w = parentWidget()->width() - 20;
     if (w < 10) w = 800;
 
-    m_scroll->setStyleSheet("QScrollArea { border: none; }");
-    m_scroll->viewport()->setStyleSheet("");
+    m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->show();
 
     // Zaktualizuj canvas — przekazuje listę plików do rysowania
@@ -469,8 +470,8 @@ void ThumbnailGrid::virt_update_visible_rows() {
         if (m_overlay) { m_overlay->hide_rect(); m_overlay->hide(); }
         return;
     }
-    m_scroll->viewport()->setStyleSheet("");
-    m_scroll->setStyleSheet("QScrollArea { border: none; }");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     if (m_empty_cover && m_empty_cover->isVisible()) m_empty_cover->hide();
     sync_canvas();
 }
@@ -711,8 +712,7 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
     QString scan_dir = dir_path;
     // Pokaż "Ładowanie..." natychmiast — zamiast pustej siatki
     m_scroll->setStyleSheet("QScrollArea { border: none; }");
-    m_scroll->viewport()->setStyleSheet(
-        QString("background: %1;").arg(palette().color(QPalette::Window).name()));
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     if (m_loading_label) { m_loading_label->show(); m_loading_label->raise(); }
 
     auto* watcher = new QFutureWatcher<QList<ScannedFile>>(this);
@@ -904,8 +904,8 @@ void ThumbnailGrid::apply_filter_and_rebuild() {
     m_virt_last_visible_row  = -1;
 
     m_scroll->show();
-    m_scroll->viewport()->setStyleSheet("");
-    m_scroll->setStyleSheet("QScrollArea { border: none; }");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     m_pending_rebuild = false;
 
     // Zaktualizuj canvas
@@ -2275,8 +2275,8 @@ void ThumbnailGrid::remove_items_in_place(const QStringList& paths) {
         m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     } else {
         sync_canvas();
-        m_scroll->viewport()->setStyleSheet("");
-        m_scroll->setStyleSheet("QScrollArea { border: none; }");
+        m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+        m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
         QTimer::singleShot(0, this, &ThumbnailGrid::request_visible_thumbs);
     }
 
