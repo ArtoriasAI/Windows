@@ -415,7 +415,8 @@ void MainWindow::setup_tabs() {
             on_folder_in_new_window(folder);
     });
     m_tabs->setStyleSheet(R"(
-        QTabWidget::pane   { border: none; }
+        QTabWidget        { background: #1e1e1e; }
+        QTabWidget::pane  { border: none; background: #1e1e1e; margin: 0; padding: 0; }
         QTabBar::tab       { background: #2a2a2a; color: #aaa;
                              padding: 5px 14px; margin-right: 2px; min-width: 80px; }
         QTabBar::tab:selected { background: #1e1e1e; color: #fff;
