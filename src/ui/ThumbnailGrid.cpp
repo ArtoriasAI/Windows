@@ -2459,14 +2459,22 @@ void ThumbnailGrid::request_all_thumbs_background() {
 
 void ThumbnailGrid::select_all() {
     for (const auto& f : m_visible) m_selected.insert(f.path);
+    if (!m_visible.isEmpty()) m_primary = m_visible.first().path;
+    // Aktualizuj canvas (działa zarówno z GL jak i QPainter)
+    if (m_canvas) m_canvas->set_selected(m_selected);
+    // Kompatybilność: stare widgety ThumbnailItem (gdy m_items nie jest pusty)
     for (auto* item : m_items) item->set_selected(true);
     emit selection_changed(selected_paths());
+    emit primary_changed(m_primary);
 }
 
 void ThumbnailGrid::deselect_all() {
     m_selected.clear();
+    m_primary.clear();
+    if (m_canvas) m_canvas->set_selected(m_selected);
     for (auto* item : m_items) item->set_selected(false);
     emit selection_changed({});
+    emit primary_changed({});
 }
 
 } // namespace LapesEye
