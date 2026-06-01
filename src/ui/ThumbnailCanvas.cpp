@@ -162,7 +162,8 @@ void ThumbnailCanvas::rename_item(const QString& old_path, const QString& new_pa
 // ─── Geometria ────────────────────────────────────────────────────────────────
 
 int ThumbnailCanvas::cols() const {
-    int w = width();
+    // Użyj m_explicit_width jeśli ustawione (przed przetworzeniem resize przez Qt)
+    int w = (m_explicit_width > 0) ? m_explicit_width : width();
     if (w < 10) return 1;
     // Rozmiar kafelka = thumb + padding po obu stronach + gap
     int tile = m_thumb_size + 2*CELL_PAD;
