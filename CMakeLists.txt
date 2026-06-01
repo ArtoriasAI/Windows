@@ -148,13 +148,13 @@ target_link_libraries(lapes-eye PRIVATE
     ${LIBRAW_LIBRARIES}
 )
 
-if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets)
+if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets AND NOT WIN32)
     target_link_libraries(lapes-eye PRIVATE Qt6::OpenGL Qt6::OpenGLWidgets)
     target_compile_definitions(lapes-eye PRIVATE LEYE_HAS_GL=1)
     message(STATUS "  GPU:          OpenGL 4.5 DSA (QOpenGLWidget)")
 else()
     target_compile_definitions(lapes-eye PRIVATE LEYE_HAS_GL=0)
-    message(STATUS "  GPU:          niedostępny (fallback QPainter)")
+    message(STATUS "  GPU:          QPainter (Windows lub brak OpenGL)")
 endif()
 
 if(NOT WIN32)
