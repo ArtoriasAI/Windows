@@ -46,6 +46,7 @@ public:
 
     void set_items(QVector<ThumbnailCanvasItem> items);
     void set_thumb_size(int size);
+    void set_explicit_width(int w) { m_explicit_width = w; }
     void set_selected(const QSet<QString>& selected);
     void set_cut_paths(const QSet<QString>& cut);
     void set_drag_active(bool active);
@@ -118,7 +119,8 @@ private:
     QHash<QString, QPixmap>      m_pixmap_store;
     QSet<QString>  m_selected;
     QSet<QString>  m_cut;
-    int            m_thumb_size  = 160;
+    int            m_thumb_size     = 160;
+    int            m_explicit_width = 0;   // ustawiany przed setFixedWidth dla poprawnego cols()
     bool           m_drag_active = false;
     int            m_hovered_idx = -1;
     QPoint         m_press_global;
