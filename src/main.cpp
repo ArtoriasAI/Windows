@@ -13,22 +13,12 @@
 int main(int argc, char* argv[]) {
 #if LEYE_HAS_GL
 #ifdef Q_OS_WIN
-    // Windows: wymuś natywny OpenGL zamiast ANGLE (DirectX emulation)
-    // ANGLE nie obsługuje OpenGL 4.5 Core Profile
-    // setAttribute musi być PRZED QApplication
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
     qputenv("QT_OPENGL", "desktop");
-    QSurfaceFormat fmt;
-    fmt.setVersion(4, 5);
-    fmt.setProfile(QSurfaceFormat::CoreProfile);
-    fmt.setRenderableType(QSurfaceFormat::OpenGL);
-    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
-    fmt.setSwapInterval(1);
-    QSurfaceFormat::setDefaultFormat(fmt);
 #else
-    // Linux: Wymuś GLX (nie EGL) — OpenGL 4.5 Core Profile niedostępny przez EGL na X11
     if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
+#endif
     QSurfaceFormat fmt;
     fmt.setVersion(4, 5);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
@@ -36,26 +26,21 @@ int main(int argc, char* argv[]) {
     fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     fmt.setSwapInterval(1);
     QSurfaceFormat::setDefaultFormat(fmt);
-#endif
 #endif
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
     app.setOrganizationName("Lape");
-    app.setApplicationVersion("0.5.2");
+    app.setApplicationVersion("0.5.6");
     app.setDesktopFileName("lapes-eye");
 
     // Ikona aplikacji — wielorozdzielcza z QRC
     QIcon appIcon;
 #ifdef Q_OS_WIN
-    // Windows: załaduj ICO bezpośrednio z EXE (zasób RC) — poprawna ikona w pasku zadań
-    // ExtractIcon zapewnia że pinnowana ikona jest taka sama jak w runtime
     appIcon = QIcon(":/icons/lapes-eye.ico");
     if (appIcon.isNull()) {
-        // Fallback: PNG z zasobów
-        appIcon.addFile(":/icons/lapes-eye-16.png",  QSize(16,16));
-        appIcon.addFile(":/icons/lapes-eye-32.png",  QSize(32,32));
-        appIcon.addFile(":/icons/lapes-eye-48.png",  QSize(48,48));
-        appIcon.addFile(":/icons/lapes-eye-256.png", QSize(256,256));
+        appIcon.addFile(":/icons/lapes-eye-16.png", QSize(16,16));
+        appIcon.addFile(":/icons/lapes-eye-32.png", QSize(32,32));
+        appIcon.addFile(":/icons/lapes-eye-256.png",QSize(256,256));
     }
 #else
     appIcon.addFile(":/icons/lapes-eye-16.png",  QSize(16,16));
@@ -89,13 +74,36 @@ int main(int argc, char* argv[]) {
 
     win.show();
 
-    // Jeśli podano folder jako argument, otwórz go po pokazaniu okna
+    // Obsługa argumentów:
+    // - folder: otwórz bezpośrednio
+    // - plik: otwórz folder zawierający + zaznacz plik
+    // Dzięki temu "Otwórz w Lape's Eye" z menedżera plików działa dla obu
     const auto args = QApplication::arguments();
-    if (args.size() > 1 && QDir(args[1]).exists()) {
-        QString startDir = args[1];
-        QTimer::singleShot(0, &win, [&win, startDir]() {
-            win.open_folder(startDir);
-        });
+    if (args.size() > 1) {
+        QString arg = args[1];
+        QString startDir;
+        QString selectFile;
+
+        if (QDir(arg).exists()) {
+            // To jest folder
+            startDir = arg;
+        } else if (QFileInfo(arg).isFile()) {
+            // To jest plik — otwórz jego folder i zaznacz plik
+            startDir  = QFileInfo(arg).absolutePath();
+            selectFile = arg;
+        }
+
+        if (!startDir.isEmpty()) {
+            QTimer::singleShot(0, &win, [&win, startDir, selectFile]() {
+                win.open_folder(startDir);
+                if (!selectFile.isEmpty()) {
+                    // Zaznacz konkretny plik po otwarciu folderu
+                    QTimer::singleShot(500, &win, [&win, selectFile]() {
+                        win.select_file(selectFile);
+                    });
+                }
+            });
+        }
     }
 
     return app.exec();

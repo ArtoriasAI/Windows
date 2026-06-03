@@ -111,7 +111,6 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
     m_scroll->setFrameShadow(QFrame::Plain);
     m_scroll->setLineWidth(0);
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
-    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setAcceptDrops(true);   // ThumbnailGrid obsługuje drop przez event filter
     m_scroll->viewport()->setAcceptDrops(true);
     m_canvas->installEventFilter(this);  // przechwytuj drag eventy z canvas
@@ -434,11 +433,10 @@ void ThumbnailGrid::virt_full_rebuild() {
     if (w < 10) w = 800;
 
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
-    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->show();
 
     // Zaktualizuj canvas — przekazuje listę plików do rysowania
-    // set_explicit_width PRZED setFixedWidth — cols() używa go zanim Qt przetworzy resize
     m_canvas->set_explicit_width(w);
     m_canvas->setFixedWidth(w);
     m_canvas->set_thumb_size(m_thumb_size);
@@ -466,11 +464,11 @@ void ThumbnailGrid::virt_update_visible_rows() {
     if (m_visible.isEmpty()) {
         m_canvas->set_items({});
         m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
-        m_scroll->setStyleSheet("QScrollArea { border: none; }");
+        m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
         if (m_overlay) { m_overlay->hide_rect(); m_overlay->hide(); }
         return;
     }
-    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     if (m_empty_cover && m_empty_cover->isVisible()) m_empty_cover->hide();
     sync_canvas();
@@ -711,7 +709,7 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
 
     QString scan_dir = dir_path;
     // Pokaż "Ładowanie..." natychmiast — zamiast pustej siatki
-    m_scroll->setStyleSheet("QScrollArea { border: none; }");
+    m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     if (m_loading_label) { m_loading_label->show(); m_loading_label->raise(); }
 
@@ -732,15 +730,14 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
                     setFocus();
                 }
             });
-            // Pre-ładuj metadane folderów w tle — żeby etykiety kolorów były widoczne
+            // Pre-ładuj metadane folderów (etykiety kolorów)
             QTimer::singleShot(50, this, [this, scan_dir]() {
                 if (m_current_dir != scan_dir) return;
                 for (const auto& f : m_visible) {
                     if (f.is_dir && !m_meta_cache.contains(f.path)) {
                         auto meta = MetaStore::load(f.path);
-                        if (meta.color_label != ColorLabel::None || meta.rating > 0) {
+                        if (meta.color_label != ColorLabel::None || meta.rating > 0)
                             m_meta_cache[f.path] = meta;
-                        }
                     }
                 }
                 virt_full_rebuild();
@@ -904,7 +901,7 @@ void ThumbnailGrid::apply_filter_and_rebuild() {
     m_virt_last_visible_row  = -1;
 
     m_scroll->show();
-    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     m_pending_rebuild = false;
 
@@ -1038,7 +1035,6 @@ void ThumbnailGrid::focusOutEvent(QFocusEvent* e) {
 void ThumbnailGrid::showEvent(QShowEvent* e) {
     QWidget::showEvent(e);
 #ifdef Q_OS_WIN
-    // Windows: viewport może raportować zerową szerokość przy pierwszym show
     QTimer::singleShot(100, this, [this]() {
         if (!m_all_files.isEmpty()) virt_full_rebuild();
     });
@@ -1090,19 +1086,22 @@ void ThumbnailGrid::on_item_clicked(const QString& path, Qt::KeyboardModifiers m
         return;
     }
 
-    // Znajdź indeks klikniętego elementu i przewiń żeby był widoczny
-    // (przy max zoom kafelki są duże i element może być poza widokiem)
+    // Znajdź indeks klikniętego elementu i przewiń minimalnie żeby był widoczny
+    // Identyczne zachowanie jak strzałki — NIE centruj, tylko minimalne przewinięcie
     if (m_canvas) {
         for (int i = 0; i < m_visible.size(); ++i) {
             if (m_visible[i].path == path) {
                 QRect r    = m_canvas->item_rect(i);
                 int sv     = m_scroll->verticalScrollBar()->value();
                 int vp_h   = m_scroll->viewport()->height();
-                if (r.top() < sv || r.bottom() > sv + vp_h) {
-                    // Element poza widokiem — centruj go
-                    int new_sv = r.top() - (vp_h - r.height()) / 2;
-                    m_scroll->verticalScrollBar()->setValue(qMax(0, new_sv));
+                if (r.top() < sv) {
+                    // Element wychodzi poza górę — przewiń do góry
+                    m_scroll->verticalScrollBar()->setValue(r.top());
+                } else if (r.bottom() > sv + vp_h) {
+                    // Element wychodzi poza dół — przewiń minimalnie w dół
+                    m_scroll->verticalScrollBar()->setValue(r.bottom() - vp_h);
                 }
+                // W pełni widoczny — nie ruszaj scrolla
                 break;
             }
         }
@@ -1680,12 +1679,29 @@ void ThumbnailGrid::dropEvent(QDropEvent* e) {
 void ThumbnailGrid::delete_selected() {
     QStringList paths = selected_paths();
     if (paths.isEmpty()) return;
-    // Bez potwierdzenia — Del usuwa natychmiast
+
+    // Przenieś do kosza systemowego (Linux: ~/.local/share/Trash, Windows: Kosz)
+    // QFile::moveToTrash() — bezpieczne, można odzyskać
+    QStringList failed;
     for (const auto& path : paths) {
-        if (QFileInfo(path).isDir()) QDir(path).removeRecursively();
-        else                         QFile::remove(path);
+        bool ok = false;
+        if (QFileInfo(path).isDir()) {
+            // Foldery: moveToTrash działa też dla katalogów od Qt 5.15
+            ok = QFile::moveToTrash(path);
+            if (!ok) ok = !QDir(path).removeRecursively();
+        } else {
+            ok = QFile::moveToTrash(path);
+        }
+        if (!ok) failed << QFileInfo(path).fileName();
+
+        // Plik .leye usuwamy na stałe (metadane nieistotne bez pliku)
         QString leye = path + ".leye";
         if (QFileInfo::exists(leye)) QFile::remove(leye);
+    }
+
+    if (!failed.isEmpty()) {
+        QMessageBox::warning(this, "Usuwanie",
+            "Nie udało się przenieść do kosza:\n" + failed.join("\n"));
     }
     remove_items_in_place(paths);
 }
@@ -2275,7 +2291,7 @@ void ThumbnailGrid::remove_items_in_place(const QStringList& paths) {
         m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     } else {
         sync_canvas();
-        m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+        if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
         m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
         QTimer::singleShot(0, this, &ThumbnailGrid::request_visible_thumbs);
     }
@@ -2460,9 +2476,7 @@ void ThumbnailGrid::request_all_thumbs_background() {
 void ThumbnailGrid::select_all() {
     for (const auto& f : m_visible) m_selected.insert(f.path);
     if (!m_visible.isEmpty()) m_primary = m_visible.first().path;
-    // Aktualizuj canvas (działa zarówno z GL jak i QPainter)
     if (m_canvas) m_canvas->set_selected(m_selected);
-    // Kompatybilność: stare widgety ThumbnailItem (gdy m_items nie jest pusty)
     for (auto* item : m_items) item->set_selected(true);
     emit selection_changed(selected_paths());
     emit primary_changed(m_primary);

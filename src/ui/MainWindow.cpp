@@ -78,36 +78,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     qApp->setPalette(pal);
 #ifdef Q_OS_WIN
     setStyleSheet(
-        // Główne okno
         "QMainWindow { background: #1e1e1e; }"
         "QMainWindow::separator { background: #333; width: 4px; height: 4px; }"
         "QMainWindow::separator:hover { background: #2d7dd2; }"
-        // Menu
         "QMenuBar { background: #1e1e1e; color: #ccc; border: none; margin: 0; padding: 0; }"
         "QMenuBar::item { background: #1e1e1e; padding: 4px 8px; }"
         "QMenuBar::item:selected { background: #2d7dd2; color: #fff; }"
         "QMenu { background: #252535; color: #ccc; border: 1px solid #444; }"
         "QMenu::item:selected { background: #2d7dd2; color: #fff; }"
-        // Status bar
         "QStatusBar { background: #1a1a1a; color: #888; border-top: 1px solid #333; }"
-        // Toolbar
         "QToolBarExtension { background: #1e1e1e; border: none; }"
         "QToolBar { background: #1e1e1e; border: none; border-bottom: 1px solid #2a2a2a; margin: 0; padding: 1px 4px; }"
         "QToolBar::handle { image: none; width: 0; height: 0; }"
         "QToolBar::separator { background: #444; width: 1px; margin: 4px 2px; }"
-        // Dock widgety — titlebar i separator
-        "QDockWidget { background: #1e1e1e; color: #ccc; titlebar-close-icon: none; }"
+        "QDockWidget { background: #1e1e1e; color: #ccc; }"
         "QDockWidget::title { background: #252535; color: #aaa; padding: 4px 8px; border-bottom: 1px solid #333; }"
         "QDockWidget::close-button, QDockWidget::float-button { background: transparent; border: none; }"
-        "QDockWidget::close-button:hover, QDockWidget::float-button:hover { background: #444; }"
-        // Tab bar — tło między zakładkami
-        "QTabBar { background: #1e1e1e; }"
-        "QTabBar::tab { background: #2a2a2a; color: #aaa; padding: 5px 14px; margin-right: 2px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #fff; border-bottom: 2px solid #2D7DD2; }"
-        "QTabBar::tab:hover { background: #333; color: #ddd; }"
-        "QTabWidget { background: #1e1e1e; }"
-        "QTabWidget::pane { border: none; background: #1e1e1e; margin: 0; padding: 0; }"
-        // Scrollbary
         "QScrollBar:vertical { background: #252535; width: 8px; margin: 0; }"
         "QScrollBar::handle:vertical { background: #555; border-radius: 4px; min-height: 20px; }"
         "QScrollBar::handle:vertical:hover { background: #777; }"
@@ -177,8 +163,8 @@ void MainWindow::setup_toolbar() {
     tb->setObjectName("toolbar_main");
     tb->setMovable(false);
     tb->setFloatable(false);
-    tb->setIconSize(QSize(16, 16));
     tb->setContentsMargins(0, 0, 0, 0);
+    tb->setIconSize(QSize(16, 16));
 
     // Wstecz / Przód
     m_act_back = new QAction("◀", tb);
@@ -275,8 +261,8 @@ void MainWindow::setup_panels() {
     left_dock->setFeatures(QDockWidget::DockWidgetMovable |
                            QDockWidget::DockWidgetFloatable |
                            QDockWidget::DockWidgetClosable);
-    left_dock->setMinimumWidth(150);
-    left_dock->setMaximumWidth(16777215);  // brak limitu
+    left_dock->setMinimumWidth(180);
+    left_dock->setMaximumWidth(16777215);
     // Problem 5: QDockWidget może pochłaniać drag eventy — wymuś acceptDrops
     left_dock->setAcceptDrops(true);
     addDockWidget(Qt::LeftDockWidgetArea, left_dock);
@@ -302,7 +288,7 @@ void MainWindow::setup_panels() {
     m_preview_dock->setFeatures(QDockWidget::DockWidgetMovable |
                                 QDockWidget::DockWidgetFloatable |
                                 QDockWidget::DockWidgetClosable);
-    m_preview_dock->setMinimumWidth(180);
+    m_preview_dock->setMinimumWidth(230);
     addDockWidget(Qt::RightDockWidgetArea, m_preview_dock);
 
     // Prawy dock dół: metadane
@@ -438,32 +424,67 @@ void MainWindow::setup_tabs() {
     m_tabs->setStyleSheet(R"(
         QTabWidget        { background: #1e1e1e; border: none; }
         QTabWidget::pane  { border: none; background: #1e1e1e; margin: 0; padding: 0; top: 0px; }
-        QTabBar            { background: #1e1e1e; border: none; border-bottom: none;
-                             qproperty-drawBase: 0; }
+        QTabBar            { background: #1e1e1e; border: none; qproperty-drawBase: 0; }
         QTabBar::tab       { background: #2a2a2a; color: #aaa;
-                             padding: 5px 14px; margin-right: 2px; min-width: 80px;
-                             border: none; }
+                             padding: 5px 14px; margin-right: 2px; min-width: 80px; border: none; }
         QTabBar::tab:selected { background: #1e1e1e; color: #fff;
                                 border-bottom: 2px solid #2D7DD2; }
         QTabBar::tab:hover    { background: #333; color: #ddd; }
-        QTabBar::tab:!selected { margin-top: 0px; }
-        QTabBar::scroller     { background: #1e1e1e; width: 0px; }
-        QTabBar::tear         { border: none; background: #1e1e1e; }
-        QTabBar QToolButton   { background: #1e1e1e; border: none; color: #aaa; }
+        QTabBar::scroller  { background: #1e1e1e; }
+        QTabBar QToolButton { background: #1e1e1e; border: none; color: #aaa; }
     )");
 
-    auto* new_tab_btn = new QToolButton(m_tabs);
+    // Przycisk + umieszczony zaraz za ostatnią zakładką (nie w rogu).
+    // Rodzic = tabBar(), repozycjonowany przy każdej zmianie zakładek.
+    auto* bar = m_tabs->tabBar();
+    auto* new_tab_btn = new QToolButton(bar);
     new_tab_btn->setText("+");
     new_tab_btn->setToolTip("Nowa zakładka (Ctrl+T)");
     new_tab_btn->setAutoRaise(true);
-    new_tab_btn->setFixedSize(24, 24);
-    new_tab_btn->setFocusPolicy(Qt::NoFocus);  // nie kradnie focusu od siatki
+    new_tab_btn->setFixedSize(28, 28);
+    new_tab_btn->setFocusPolicy(Qt::NoFocus);
     new_tab_btn->setStyleSheet(
-        "QToolButton { background: #1e1e1e; color: #aaa; font-size: 16px; "
-        "border: none; border-radius: 3px; }"
-        "QToolButton:hover { background: #333; color: #fff; }");
-    m_tabs->setCornerWidget(new_tab_btn, Qt::TopLeftCorner);
-    QObject::connect(new_tab_btn, &QToolButton::clicked, this, &MainWindow::action_new_tab);
+        "QToolButton { background: #1e1e1e; color: #888; font-size: 18px; "
+        "border: none; border-radius: 3px; padding-bottom: 2px; }"
+        "QToolButton:hover { background: #383838; color: #fff; }");
+
+    // Lambda repozycjonująca przycisk za ostatnią zakładką
+    auto reposition_btn = [bar, new_tab_btn]() {
+        int n = bar->count();
+        if (n == 0) {
+            new_tab_btn->move(2, (bar->height() - 28) / 2);
+        } else {
+            QRect last = bar->tabRect(n - 1);
+            int x = last.right() + 2;
+            int y = (bar->height() - 28) / 2;
+            new_tab_btn->move(x, y);
+        }
+        new_tab_btn->raise();
+    };
+
+    // Repozycjonuj przy każdej zmianie zakładek
+    QObject::connect(m_tabs, &QTabWidget::currentChanged,
+                     this, [reposition_btn](int) { reposition_btn(); });
+    // Repozycjonuj też gdy pasek się resize-uje
+    // EventFilter na tabBar — repozycjonuj przy resize i LayoutRequest
+    struct TabBarFilter : public QObject {
+        std::function<void()> fn;
+        TabBarFilter(QObject* parent, std::function<void()> f)
+            : QObject(parent), fn(std::move(f)) {}
+        bool eventFilter(QObject*, QEvent* e) override {
+            if (e->type() == QEvent::Resize ||
+                e->type() == QEvent::LayoutRequest)
+                fn();
+            return false;
+        }
+    };
+    bar->installEventFilter(new TabBarFilter(bar, reposition_btn));
+    QTimer::singleShot(0, this, [reposition_btn]() { reposition_btn(); });
+
+    QObject::connect(new_tab_btn, &QToolButton::clicked, this, [this, reposition_btn]() {
+        action_new_tab();
+        QTimer::singleShot(50, this, [reposition_btn]() { reposition_btn(); });
+    });
 
     QObject::connect(m_tabs, &QTabWidget::currentChanged,
                      this, &MainWindow::on_tab_changed);
@@ -908,6 +929,13 @@ void MainWindow::open_folder_in_new_window(const QString& path) {
     auto* w = new MainWindow();
     w->show();
     if (!path.isEmpty()) w->open_folder(path);
+}
+
+void MainWindow::select_file(const QString& path) {
+    auto* g = current_grid();
+    if (!g) return;
+    // Zaznacz plik w siatce (scroll_to jest wbudowany w select_path)
+    g->select_path(path);
 }
 
 void MainWindow::on_folder_selected(const QString& path_ref) {

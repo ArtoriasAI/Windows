@@ -3,15 +3,17 @@
 // ── Baza: QOpenGLWidget gdy LEYE_HAS_GL=1, QWidget gdy =0 ───────────────────
 // QOpenGLWidget jest child widgetem QScrollArea — brak osobnego okna systemowego.
 // Qt zarządza FBO automatycznie. Cały event system (scroll/drag/events) bez zmian.
+// Zawsze QWidget jako baza — brak FBO problemów z QScrollArea.
+// OpenGL context tworzymy sami przez QOpenGLContext + QOffscreenSurface.
+#include <QWidget>
+#define TC_BASE QWidget
 #if LEYE_HAS_GL
-#  include <QOpenGLWidget>
+#  include <QOpenGLContext>
 #  include <QOpenGLFunctions_4_5_Core>
 #  include <QOpenGLVersionFunctionsFactory>
 #  include <QOpenGLShaderProgram>
-#  define TC_BASE QOpenGLWidget
-#else
-#  include <QWidget>
-#  define TC_BASE QWidget
+#  include <QOffscreenSurface>
+#  include <QOpenGLFramebufferObject>
 #endif
 
 #include <QPixmap>
@@ -103,9 +105,10 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 #if LEYE_HAS_GL
-    void initializeGL() override;
-    void resizeGL(int w, int h) override;
-    void paintGL() override;
+    void gl_init();
+    void gl_resize(int w, int h);
+    void gl_paint();
+    void gl_paint_region(QOpenGLFunctions_4_5_Core* f, const QRect& clip);
 #endif
 
 private:
@@ -119,8 +122,8 @@ private:
     QHash<QString, QPixmap>      m_pixmap_store;
     QSet<QString>  m_selected;
     QSet<QString>  m_cut;
-    int            m_thumb_size     = 160;
-    int            m_explicit_width = 0;   // ustawiany przed setFixedWidth dla poprawnego cols()
+    int            m_explicit_width = 0;
+    int            m_thumb_size  = 160;
     bool           m_drag_active = false;
     int            m_hovered_idx = -1;
     QPoint         m_press_global;
@@ -160,6 +163,11 @@ private:
     void gpu_delete_entry(GpuEntry& e);
     void gpu_delete_all();
 
+    QOpenGLContext*          m_gl_ctx   = nullptr;
+    QOffscreenSurface*       m_gl_surf  = nullptr;
+    QOpenGLFramebufferObject*m_gl_fbo   = nullptr;  // cache FBO — nie alokuj per frame
+    QSize                    m_fbo_size;             // rozmiar cache FBO
+    QSize                 m_last_size;
     QOpenGLShaderProgram* m_prog    = nullptr;
     GLuint                m_vao     = 0;
     GLuint                m_vbo     = 0;

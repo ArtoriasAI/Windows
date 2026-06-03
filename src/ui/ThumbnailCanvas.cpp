@@ -1,6 +1,7 @@
 #include "LapesEye/ui/ThumbnailCanvas.h"
 #if LEYE_HAS_GL
 #  include <QOpenGLContext>
+#  include <QOpenGLPaintDevice>
 #  include <cmath>
 #endif
 #include "LapesEye/core/PerfTimer.h"
@@ -40,8 +41,9 @@ static constexpr int NAME_H    = 15;
 static constexpr int STARS_H   = 12;
 
 ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
-    : TC_BASE(parent)
+    : QWidget(parent)
 {
+
     setMouseTracking(true);
     setFocusPolicy(Qt::NoFocus);
     // Timer: po 150ms bez scrollu przełącz na SmoothTransformation i odrysuj
@@ -57,7 +59,6 @@ ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
 void ThumbnailCanvas::set_items(QVector<ThumbnailCanvasItem> items) {
     PERF_SCOPE("set_items");
     m_items = std::move(items);
-    // Uzupełnij pixmapy z trwałego magazynu
     for (auto& ci : m_items) {
         if (ci.thumb.isNull()) {
             auto it = m_pixmap_store.find(ci.file.path);
@@ -68,6 +69,10 @@ void ThumbnailCanvas::set_items(QVector<ThumbnailCanvasItem> items) {
     m_hovered_idx = -1;
     int h = total_height();
     setFixedHeight(qMax(1, h));
+#if LEYE_HAS_GL
+    // Invaliduj wszystkie overlay — rozmiar kafelka mógł się zmienić
+    for (auto& e : m_gpu) { e.overlay_dirty = true; e.ov_w = 0; e.ov_h = 0; }
+#endif
     update();
 }
 
@@ -104,7 +109,10 @@ void ThumbnailCanvas::set_drag_active(bool active) {
 void ThumbnailCanvas::set_pixmap(const QString& path, const QPixmap& pix) {
     if (!pix.isNull()) m_pixmap_store[path] = pix;
 #if LEYE_HAS_GL
-    if (m_gpu.contains(path)) m_gpu[path].thumb_dirty = true;
+    if (m_gpu.contains(path)) {
+        m_gpu[path].thumb_dirty   = true;
+        m_gpu[path].overlay_dirty = true;  // ikona folderu zależy od thumb.isNull()
+    }
 #endif
     for (int i = 0; i < m_items.size(); ++i) {
         if (m_items[i].file.path == path) {
@@ -118,7 +126,10 @@ void ThumbnailCanvas::set_pixmap(const QString& path, const QPixmap& pix) {
 void ThumbnailCanvas::set_pixmap_no_update(const QString& path, const QPixmap& pix) {
     if (!pix.isNull()) m_pixmap_store[path] = pix;
 #if LEYE_HAS_GL
-    if (m_gpu.contains(path)) m_gpu[path].thumb_dirty = true;
+    if (m_gpu.contains(path)) {
+        m_gpu[path].thumb_dirty   = true;
+        m_gpu[path].overlay_dirty = true;  // ikona folderu zależy od thumb.isNull()
+    }
 #endif
     for (int i = 0; i < m_items.size(); ++i)
         if (m_items[i].file.path == path) { m_items[i].thumb = pix; return; }
@@ -162,7 +173,6 @@ void ThumbnailCanvas::rename_item(const QString& old_path, const QString& new_pa
 // ─── Geometria ────────────────────────────────────────────────────────────────
 
 int ThumbnailCanvas::cols() const {
-    // Użyj m_explicit_width jeśli ustawione (przed przetworzeniem resize przez Qt)
     int w = (m_explicit_width > 0) ? m_explicit_width : width();
     if (w < 10) return 1;
     // Rozmiar kafelka = thumb + padding po obu stronach + gap
@@ -229,13 +239,53 @@ int ThumbnailCanvas::index_at(const QPoint& pos) const {
 void ThumbnailCanvas::paintEvent(QPaintEvent* e) {
     PERF_SCOPE("paintEvent_canvas");
 #if LEYE_HAS_GL
-    // Gdy GL aktywny: QOpenGLWidget wywołuje paintGL() automatycznie.
-    // paintEvent nie powinien rysować przez QPainter — spowoduje konflikt z GL.
-    if (m_gl_ok) {
-        // QOpenGLWidget::paintEvent wywołuje paintGL() przez update() — nic nie robimy
-        return;
+    if (!m_gl_ok) {
+        // GL nie zainicjalizowany — spróbuj teraz (lazy init)
+        const_cast<ThumbnailCanvas*>(this)->gl_init();
     }
-    // Fallback: GL nie zainicjalizowany — rysuj przez QPainter
+    if (m_gl_ok && m_gl_ctx && m_gl_surf) {
+        const QRect clip = e->rect();
+        const int vw = clip.width(), vh = clip.height();
+
+        m_gl_ctx->makeCurrent(m_gl_surf);
+        auto* f = gl();
+        if (!f) { m_gl_ctx->doneCurrent(); goto fallback; }
+
+        // ── Cache FBO — alokuj raz, reuse przy każdej klatce ──────────────
+        // Alokacja FBO kosztuje ~3ms — robimy to tylko gdy rozmiar się zmienia
+        if (!m_gl_fbo || m_fbo_size != QSize(vw, vh)) {
+            delete m_gl_fbo;
+            QOpenGLFramebufferObjectFormat fmt;
+            fmt.setSamples(0);
+            fmt.setAttachment(QOpenGLFramebufferObject::NoAttachment);
+            m_gl_fbo  = new QOpenGLFramebufferObject(vw, vh, fmt);
+            m_fbo_size = QSize(vw, vh);
+        }
+
+        if (m_gl_fbo && m_gl_fbo->isValid()) {
+            m_gl_fbo->bind();
+            m_proj.setToIdentity();
+            m_proj.ortho(clip.left(), clip.right(), clip.top()+vh, clip.top(), -1.f, 1.f);
+            f->glViewport(0, 0, vw, vh);
+            f->glClearColor(0x1e/255.f, 0x1e/255.f, 0x1e/255.f, 1.f);
+            f->glClear(GL_COLOR_BUFFER_BIT);
+            gl_paint_region(f, clip);
+            m_gl_fbo->release();
+
+            // ── Blit FBO → widget przez QPainter ─────────────────────────
+            // toImage kosztuje ~2ms — zastąp przez drawImage z texture ID
+            // Na razie używamy toImage ale z BGRA (szybszy format na x86)
+            QImage img = m_gl_fbo->toImage(true);
+            m_gl_ctx->doneCurrent();
+            if (!img.isNull()) {
+                QPainter p(this);
+                p.drawImage(clip.topLeft(), img);
+                return;
+            }
+        }
+        m_gl_ctx->doneCurrent();
+    }
+    fallback:;
 #endif
     QPainter p(this);
     QRect clip = e->rect();
@@ -573,14 +623,19 @@ void ThumbnailCanvas::cancel_rename() {
 // ════════════════════════════════════════════════════════════════════════════
 ThumbnailCanvas::~ThumbnailCanvas() {
 #if LEYE_HAS_GL
-    makeCurrent();
-    gpu_delete_all();
-    if (auto* f = gl()) {
-        if (m_vao) { f->glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
-        if (m_vbo) { f->glDeleteBuffers(1, &m_vbo);      m_vbo = 0; }
+    if (m_gl_ctx && m_gl_surf) {
+        m_gl_ctx->makeCurrent(m_gl_surf);
+        delete m_gl_fbo; m_gl_fbo = nullptr;
+        gpu_delete_all();
+        if (auto* f = gl()) {
+            if (m_vao) { f->glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
+            if (m_vbo) { f->glDeleteBuffers(1, &m_vbo);      m_vbo = 0; }
+        }
+        delete m_prog; m_prog = nullptr;
+        m_gl_ctx->doneCurrent();
     }
-    delete m_prog; m_prog = nullptr;
-    doneCurrent();
+    delete m_gl_ctx;  m_gl_ctx  = nullptr;
+    delete m_gl_surf; m_gl_surf = nullptr;
 #endif
 }
 
@@ -628,8 +683,8 @@ static QColor gl_label_color(ColorLabel lc) {
 }
 
 ThumbnailCanvas::GL45* ThumbnailCanvas::gl() const {
-    if (!context()) return nullptr;
-    return QOpenGLVersionFunctionsFactory::get<GL45>(context());
+    if (!m_gl_ctx) return nullptr;
+    return QOpenGLVersionFunctionsFactory::get<GL45>(m_gl_ctx);
 }
 
 bool ThumbnailCanvas::init_shader() {
@@ -667,21 +722,42 @@ void ThumbnailCanvas::init_vao() {
     f->glVertexArrayAttribBinding(m_vao, 1, 0);
 }
 
-void ThumbnailCanvas::initializeGL() {
+void ThumbnailCanvas::gl_init() {
+    // Utwórz własny context GL — poza systemem QWidget/FBO Qt
+    QSurfaceFormat fmt;
+    fmt.setVersion(4, 5);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    m_gl_surf = new QOffscreenSurface(nullptr, this);
+    m_gl_surf->setFormat(fmt);
+    m_gl_surf->create();
+    if (!m_gl_surf->isValid()) {
+        qWarning() << "ThumbnailCanvas: OffscreenSurface failed";
+        return;
+    }
+    m_gl_ctx = new QOpenGLContext(this);
+    m_gl_ctx->setFormat(fmt);
+    if (!m_gl_ctx->create()) {
+        qWarning() << "ThumbnailCanvas: GL context failed";
+        return;
+    }
+    m_gl_ctx->makeCurrent(m_gl_surf);
     auto* f = gl();
     if (!f) { qWarning() << "ThumbnailCanvas: OpenGL 4.5 unavailable"; return; }
     f->glClearColor(0x1e/255.f, 0x1e/255.f, 0x1e/255.f, 1.f);
     f->glEnable(GL_BLEND);
     f->glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     f->glDisable(GL_DEPTH_TEST);
-    if (!init_shader()) return;
+    if (!init_shader()) { m_gl_ctx->doneCurrent(); return; }
     init_vao();
     m_gl_ok = true;
-    qDebug() << "ThumbnailCanvas: OpenGL 4.5 DSA aktywny";
+    m_gl_ctx->doneCurrent();
+    qDebug() << "ThumbnailCanvas: OpenGL 4.5 DSA aktywny (własny context, brak FBO)";
 }
 
-void ThumbnailCanvas::resizeGL(int w, int h) {
+void ThumbnailCanvas::gl_resize(int w, int h) {
     m_proj.setToIdentity();
+    // Y rośnie do dołu — jak układ Qt (0,0 = lewy górny)
     m_proj.ortho(0.f, (float)w, (float)h, 0.f, -1.f, 1.f);
 }
 
@@ -712,6 +788,8 @@ void ThumbnailCanvas::gpu_upload_thumb(GpuEntry& e, const QPixmap& pix) {
 
 void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
                                           int idx, int cw, int ch) {
+    // Context musi być aktywny gdy wywołujemy tę funkcję
+    // Jest wywoływana z gl_draw_item → paintGL → paintEvent gdzie m_gl_ctx jest aktywny
     QImage img(cw, ch, QImage::Format_RGBA8888);
     img.fill(Qt::transparent);
     const auto& item = m_items[idx];
@@ -731,8 +809,16 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
     // Cut overlay
     if (cut) { p.setPen(Qt::NoPen); p.setBrush(QColor(0,0,0,100));
                p.drawRoundedRect(QRectF(0,0,cw,ch),6,6); }
+    // Ikona folderu gdy brak miniatury
+    if (item.file.is_dir && item.thumb.isNull()) {
+        QFont ff = p.font();
+        ff.setPixelSize(qMin(qMin(ir.width(), ir.height()) * 2/3, 72));
+        p.setFont(ff);
+        p.setPen(QColor(0xF0, 0xC0, 0x20));
+        p.drawText(ir, Qt::AlignCenter, "📁");  // 📁
+    }
     // Badge
-    if (item.file.is_raw || item.file.is_psd) {
+    if (!item.file.is_dir && (item.file.is_raw || item.file.is_psd)) {
         QString txt = item.file.is_raw ? "RAW" : "PSD";
         QColor col  = item.file.is_raw ? QColor(0xE5,0x89,0x20) : QColor(0x20,0x6E,0xE5);
         QFont bf = p.font(); bf.setPixelSize(9); bf.setBold(true); p.setFont(bf);
@@ -801,7 +887,7 @@ void ThumbnailCanvas::gl_draw_quad_color(GL45* f,
     m_prog->setUniformValue(m_u_use_tex, 0.f);
     m_prog->setUniformValue(m_u_color,   QVector4D(r,g,b,a));
     m_prog->setUniformValue(m_u_alpha,   1.f);
-    f->glDrawArrays(GL_TRIANGLES,0,6);
+    f->glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
 void ThumbnailCanvas::gl_draw_quad_tex(GL45* f,
@@ -810,10 +896,10 @@ void ThumbnailCanvas::gl_draw_quad_tex(GL45* f,
     m_prog->setUniformValue(m_u_mvp,     m_proj*m);
     m_prog->setUniformValue(m_u_use_tex, 1.f);
     m_prog->setUniformValue(m_u_alpha,   alpha);
-    m_prog->setUniformValue("u_tex",     0);
-    f->glBindTextureUnit(0, tex);  // DSA: bez glActiveTexture + glBindTexture
-    f->glDrawArrays(GL_TRIANGLES,0,6);
-    f->glBindTextureUnit(0,0);
+    m_prog->setUniformValue("u_tex", 0);
+    f->glBindTextureUnit(0, tex);
+    f->glDrawArrays(GL_TRIANGLES, 0, 6);
+    f->glBindTextureUnit(0, 0);
 }
 
 void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
@@ -851,7 +937,7 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
         }
     }
 
-    // Overlay
+    // Overlay — renderuj zawsze gdy dirty (hover, zaznaczenie, rozmiar)
     auto& e=m_gpu[item.file.path];
     int cw=r.width(), ch=r.height();
     if (e.overlay_dirty||!e.overlay_id||e.ov_w!=cw||e.ov_h!=ch)
@@ -862,33 +948,27 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
 
 // ── paintGL — główna pętla renderowania ──────────────────────────────────────
 
-void ThumbnailCanvas::paintGL() {
-    PERF_SCOPE("paintGL_canvas");
-    auto* f=gl();
-    if (!f||!m_gl_ok||!m_prog||!m_vao) return;
+void ThumbnailCanvas::gl_paint() {
+    // Wrapper — wywołaj gl_paint_region dla całego rect()
+    if (auto* f=gl()) gl_paint_region(f, rect());
+}
 
-    // Tło
-    f->glClear(GL_COLOR_BUFFER_BIT);
+void ThumbnailCanvas::gl_paint_region(GL45* f, const QRect& clip) {
+    PERF_SCOPE("paintGL_canvas");
+    if (!f||!m_gl_ok||!m_prog||!m_vao) return;
     if (m_items.isEmpty()) return;
 
     int ch=cell_size(), c=cols();
     if (c==0||ch==0) return;
 
-    // Frustum culling — rysuj tylko widoczne wiersze
-    // W QOpenGLWidget rect() = viewport (nie cały canvas)
-    // Scroll = pozycja w QScrollArea (y() < 0 gdy zscrollowane)
-    // Tutaj: widget jest pełnej wirtualnej wysokości (setFixedHeight)
-    // QScrollArea przesuwa go — clip rect od QPaintEvent wskazuje widoczną część
-    // Używamy stałej projekcji (0,0)→(w,h) bez scroll offset —
-    // QScrollArea sam przesuwa widget przez geometry
-    const QRect vp = rect();
-    const int row_h = ch + CELL_GAP;
-    const int first_r = qMax(0, (vp.top() - CELL_GAP) / row_h);
+    const int row_h  = ch + CELL_GAP;
+    const int first_r = qMax(0, (clip.top() - CELL_GAP) / row_h);
     const int n_rows  = (m_items.size()+c-1)/c;
-    const int last_r  = qMin(n_rows-1, (vp.bottom()) / row_h + 1);
+    const int last_r  = qMin(n_rows-1, (clip.bottom()) / row_h + 1);
 
     m_prog->bind();
     f->glBindVertexArray(m_vao);
+
 
     for (int row=first_r; row<=last_r; ++row)
         for (int col=0; col<c; ++col) {

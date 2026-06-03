@@ -29,14 +29,13 @@ LapeIPC::~LapeIPC() {
 
 QString LapeIPC::socket_path() {
 #ifdef Q_OS_WIN
-    // Windows: QLocalSocket używa named pipes — tylko nazwa (bez ścieżki)
     return QStringLiteral("lape-bridge");
 #else
-    // ~/.config/lape/bridge/lape.sock
     QString cfg = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
     QString dir = cfg + "/lape/bridge";
     QDir().mkpath(dir);
     return dir + "/lape.sock";
+
 #endif
 }
 
