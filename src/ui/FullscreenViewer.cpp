@@ -198,26 +198,56 @@ void FullscreenViewer::load_current() {
             bool raw_ok = raw.open_file(path.toLocal8Bit().constData()) == LIBRAW_SUCCESS;
 #endif
             if (raw_ok) {
+                // Sprawdź czy embedded JPEG ma wystarczającą rozdzielczość
+                // Sony A7 ma sensor 7952px ale embedded JPEG tylko 1616px — za mały, rozmyty
+                bool use_full_decode = false;
                 if (raw.unpack_thumb() == LIBRAW_SUCCESS) {
                     libraw_processed_image_t* thumb = raw.dcraw_make_mem_thumb();
                     if (thumb && thumb->type == LIBRAW_IMAGE_JPEG) {
+                        // Pobierz rozmiar embedded JPEG przez QImageReader
                         QByteArray jpeg_data(reinterpret_cast<const char*>(thumb->data),
                                              static_cast<int>(thumb->data_size));
                         LibRaw::dcraw_clear_mem(thumb);
                         QBuffer buf(&jpeg_data);
                         buf.open(QIODevice::ReadOnly);
                         QImageReader reader(&buf, "JPEG");
-                        reader.setAutoTransform(true);
-                        img = reader.read();
+                        QSize thumb_size = reader.size();
+                        // Rozmiar sensora z metadanych LibRaw
+                        int sensor_w = raw.imgdata.sizes.raw_width;
+                        // Jeśli embedded JPEG < 50% szerokości sensora → pełny decode
+                        if (thumb_size.isValid() && sensor_w > 0 &&
+                            thumb_size.width() < sensor_w / 2) {
+                            qDebug() << "FullscreenViewer: embedded JPEG za mały"
+                                     << thumb_size << "vs sensor" << sensor_w
+                                     << "— pełny decode";
+                            use_full_decode = true;
+                        } else {
+                            reader.setAutoTransform(true);
+                            buf.seek(0);
+                            img = reader.read();
+                        }
                     } else if (thumb) {
                         LibRaw::dcraw_clear_mem(thumb);
+                        use_full_decode = true;
                     }
+                } else {
+                    use_full_decode = true;
                 }
-                // Fallback: pełne dekodowanie
-                if (img.isNull()) {
-                    if (raw.unpack() == LIBRAW_SUCCESS &&
-                        raw.dcraw_process() == LIBRAW_SUCCESS) {
-                        libraw_processed_image_t* proc = raw.dcraw_make_mem_image();
+                // Pełny decode — ostry jak Bridge
+                if (img.isNull() || use_full_decode) {
+                    LibRaw raw2;
+#ifdef Q_OS_WIN
+                    raw2.open_file(reinterpret_cast<const wchar_t*>(path.utf16()));
+#else
+                    raw2.open_file(path.toLocal8Bit().constData());
+#endif
+                    raw2.imgdata.params.use_camera_wb = 1;
+                    raw2.imgdata.params.use_auto_wb   = 0;
+                    raw2.imgdata.params.output_bps    = 8;
+                    raw2.imgdata.params.no_auto_bright = 0;
+                    if (raw2.unpack() == LIBRAW_SUCCESS &&
+                        raw2.dcraw_process() == LIBRAW_SUCCESS) {
+                        libraw_processed_image_t* proc = raw2.dcraw_make_mem_image();
                         if (proc) {
                             img = QImage(proc->data,
                                          proc->width, proc->height,
@@ -300,6 +330,7 @@ void FullscreenViewer::prefetch_neighbors() {
             bool raw_ok = raw.open_file(path.toLocal8Bit().constData()) == LIBRAW_SUCCESS;
 #endif
             if (raw_ok) {
+                        bool use_full2 = false;
                         if (raw.unpack_thumb() == LIBRAW_SUCCESS) {
                             libraw_processed_image_t* thumb = raw.dcraw_make_mem_thumb();
                             if (thumb && thumb->type == LIBRAW_IMAGE_JPEG) {
@@ -309,16 +340,33 @@ void FullscreenViewer::prefetch_neighbors() {
                                 QBuffer buf(&jpeg_data);
                                 buf.open(QIODevice::ReadOnly);
                                 QImageReader reader(&buf, "JPEG");
-                                reader.setAutoTransform(true);
-                                img = reader.read();
+                                QSize thumb_size = reader.size();
+                                int sensor_w = raw.imgdata.sizes.raw_width;
+                                if (thumb_size.isValid() && sensor_w > 0 &&
+                                    thumb_size.width() < sensor_w / 2) {
+                                    use_full2 = true;
+                                } else {
+                                    reader.setAutoTransform(true);
+                                    buf.seek(0);
+                                    img = reader.read();
+                                }
                             } else if (thumb) {
                                 LibRaw::dcraw_clear_mem(thumb);
+                                use_full2 = true;
                             }
-                        }
-                        if (img.isNull()) {
-                            if (raw.unpack() == LIBRAW_SUCCESS &&
-                                raw.dcraw_process() == LIBRAW_SUCCESS) {
-                                libraw_processed_image_t* proc = raw.dcraw_make_mem_image();
+                        } else { use_full2 = true; }
+                        if (img.isNull() || use_full2) {
+                            LibRaw raw2;
+#ifdef Q_OS_WIN
+                            raw2.open_file(reinterpret_cast<const wchar_t*>(path.utf16()));
+#else
+                            raw2.open_file(path.toLocal8Bit().constData());
+#endif
+                            raw2.imgdata.params.use_camera_wb = 1;
+                            raw2.imgdata.params.output_bps    = 8;
+                            if (raw2.unpack() == LIBRAW_SUCCESS &&
+                                raw2.dcraw_process() == LIBRAW_SUCCESS) {
+                                libraw_processed_image_t* proc = raw2.dcraw_make_mem_image();
                                 if (proc) {
                                     img = QImage(proc->data,
                                                  proc->width, proc->height,
