@@ -7,5 +7,6 @@
         <file alias="lapes-eye-32.png">icons/lapes-eye-32.png</file>
         <file alias="lapes-eye-22.png">icons/lapes-eye-22.png</file>
         <file alias="lapes-eye-16.png">icons/lapes-eye-16.png</file>
+        <file alias="lapes-eye.ico">icons/lapes-eye.ico</file>
     </qresource>
 </RCC>
