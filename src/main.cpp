@@ -46,6 +46,18 @@ int main(int argc, char* argv[]) {
 
     // Ikona aplikacji — wielorozdzielcza z QRC
     QIcon appIcon;
+#ifdef Q_OS_WIN
+    // Windows: załaduj ICO bezpośrednio z EXE (zasób RC) — poprawna ikona w pasku zadań
+    // ExtractIcon zapewnia że pinnowana ikona jest taka sama jak w runtime
+    appIcon = QIcon(":/icons/lapes-eye.ico");
+    if (appIcon.isNull()) {
+        // Fallback: PNG z zasobów
+        appIcon.addFile(":/icons/lapes-eye-16.png",  QSize(16,16));
+        appIcon.addFile(":/icons/lapes-eye-32.png",  QSize(32,32));
+        appIcon.addFile(":/icons/lapes-eye-48.png",  QSize(48,48));
+        appIcon.addFile(":/icons/lapes-eye-256.png", QSize(256,256));
+    }
+#else
     appIcon.addFile(":/icons/lapes-eye-16.png",  QSize(16,16));
     appIcon.addFile(":/icons/lapes-eye-22.png",  QSize(22,22));
     appIcon.addFile(":/icons/lapes-eye-32.png",  QSize(32,32));
@@ -53,6 +65,7 @@ int main(int argc, char* argv[]) {
     appIcon.addFile(":/icons/lapes-eye-64.png",  QSize(64,64));
     appIcon.addFile(":/icons/lapes-eye-128.png", QSize(128,128));
     appIcon.addFile(":/icons/lapes-eye-256.png", QSize(256,256));
+#endif
     app.setWindowIcon(appIcon);
 
     // Upewnij się że katalogi konfiguracyjne istnieją
