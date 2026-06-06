@@ -95,7 +95,6 @@ void BreadcrumbBar::rebuild_breadcrumbs() {
     QString norm_path = QDir::fromNativeSeparators(m_path);
     QStringList parts = norm_path.split('/', Qt::SkipEmptyParts);
 
-    // Buduj segmenty: każdy to przycisk z pełną ścieżką do tego miejsca
     // Windows: "K:/Folder" → cumulative zaczyna od "K:", nie "/K:"
 #ifdef Q_OS_WIN
     QString cumulative = "";

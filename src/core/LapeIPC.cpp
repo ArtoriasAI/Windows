@@ -31,6 +31,7 @@ QString LapeIPC::socket_path() {
 #ifdef Q_OS_WIN
     return QStringLiteral("lape-bridge");
 #else
+    // ~/.config/lape/bridge/lape.sock
     QString cfg = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
     QString dir = cfg + "/lape/bridge";
     QDir().mkpath(dir);

@@ -132,9 +132,9 @@ ExifData MetaStore::read_exif(const QString& path) {
             }
         }
     } catch (const Exiv2::Error& e) {
-        qWarning() << "Exiv2 error for" << path << ":" << e.what();
+        qWarning() << "Exiv2 error:" << path << e.what();
     } catch (const std::exception& e) {
-        qWarning() << "EXIF std::exception for" << path << ":" << e.what();
+        qWarning() << "EXIF exception:" << path << e.what();
     } catch (...) {
         // Plik bez EXIF (PNG, RAW bez danych, etc.) — zwróć pusty struct
     }

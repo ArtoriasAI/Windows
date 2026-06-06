@@ -778,8 +778,6 @@ void ThumbnailCanvas::gpu_upload_thumb(GpuEntry& e, const QPixmap& pix) {
         f->glTextureParameteri(e.thumb_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         f->glTextureParameteri(e.thumb_id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         f->glTextureParameteri(e.thumb_id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        // LOD bias -0.5 — przy zoom ~1:1 preferuj mip 0 (pełna rozdzielczość)
-        // Bez tego GL wybiera mip 1 (połowa rozdzielczości) → miniatury rozmyte
         f->glTextureParameterf(e.thumb_id, GL_TEXTURE_LOD_BIAS, -0.5f);
     }
     f->glTextureSubImage2D(e.thumb_id, 0, 0, 0, w, h,

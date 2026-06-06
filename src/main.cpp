@@ -19,6 +19,7 @@ int main(int argc, char* argv[]) {
     if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
 #endif
+    // Domyślny format GL dla wszystkich QOpenGLWidget
     QSurfaceFormat fmt;
     fmt.setVersion(4, 5);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
@@ -30,7 +31,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
     app.setOrganizationName("Lape");
-    app.setApplicationVersion("0.5.6");
+    app.setApplicationVersion("0.5.7");
     app.setDesktopFileName("lapes-eye");
 
     // Ikona aplikacji — wielorozdzielcza z QRC

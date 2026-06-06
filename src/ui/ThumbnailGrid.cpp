@@ -433,7 +433,7 @@ void ThumbnailGrid::virt_full_rebuild() {
     if (w < 10) w = 800;
 
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
-    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->show();
 
     // Zaktualizuj canvas — przekazuje listę plików do rysowania
@@ -468,7 +468,7 @@ void ThumbnailGrid::virt_update_visible_rows() {
         if (m_overlay) { m_overlay->hide_rect(); m_overlay->hide(); }
         return;
     }
-    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     if (m_empty_cover && m_empty_cover->isVisible()) m_empty_cover->hide();
     sync_canvas();
@@ -901,7 +901,7 @@ void ThumbnailGrid::apply_filter_and_rebuild() {
     m_virt_last_visible_row  = -1;
 
     m_scroll->show();
-    if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+    m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
     m_pending_rebuild = false;
 
@@ -1867,8 +1867,8 @@ void ThumbnailGrid::keyPressEvent(QKeyEvent* e) {
             if (e->modifiers() & Qt::ControlModifier) copy_selected(false);
             break;
         case Qt::Key_X:
-            if (e->modifiers() & Qt::ControlModifier) copy_selected(true);
-            break;
+            if (e->modifiers() & Qt::ControlModifier) { copy_selected(true); break; }
+            QWidget::keyPressEvent(e); return;
         case Qt::Key_V:
             if (e->modifiers() & Qt::ControlModifier) paste_here();
             break;
@@ -2291,7 +2291,7 @@ void ThumbnailGrid::remove_items_in_place(const QStringList& paths) {
         m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
     } else {
         sync_canvas();
-        if (true) m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
+        m_scroll->viewport()->setStyleSheet("background: #1e1e1e;");
         m_scroll->setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }");
         QTimer::singleShot(0, this, &ThumbnailGrid::request_visible_thumbs);
     }
