@@ -126,8 +126,15 @@ FullscreenViewer::~FullscreenViewer() {
 }
 
 FullscreenViewer::FullscreenViewer(QWidget* parent)
+#ifdef Q_OS_WIN
+    // Windows: parent musi być nullptr dla showFullScreen() z FramelessWindowHint
+    // Z parentem Qt traktuje okno jako child i showFullScreen() crashuje
+    : QWidget(nullptr, Qt::Window)
+#else
     : QWidget(parent, Qt::Window)
+#endif
 {
+    Q_UNUSED(parent)
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
