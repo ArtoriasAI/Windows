@@ -236,6 +236,7 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     m_prefetch_full_in_flight.clear();
     ++m_prefetch_full_gen;
     m_prefetch_in_flight.clear();
+    refresh_color_mode_cache();  // thread-safe pre-load przed QtConcurrent
     load_current();
     prefetch_neighbors();
     showFullScreen();
