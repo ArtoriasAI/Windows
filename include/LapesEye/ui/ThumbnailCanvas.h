@@ -130,6 +130,8 @@ private:
     QSet<QString>  m_selected;
     QSet<QString>  m_cut;
     int            m_explicit_width = 0;
+    int            m_items_offset = 0;   // indeks pierwszego itemu w m_visible
+    int            m_total_count  = 0;   // całkowita liczba itemów (do total_height)
     int            m_thumb_size  = 160;
     bool           m_drag_active = false;
     int            m_hovered_idx = -1;
@@ -179,8 +181,6 @@ private:
     static constexpr int       MAX_UPLOADS_PER_FRAME = 6;
     int                        m_uploads_this_frame = 0;
     QVector<QString>           m_upload_queue;  // kolejka nadmiarowych uploadów
-    int                        m_items_offset = 0;   // indeks pierwszego itemu w m_visible
-    int                        m_total_count  = 0;   // całkowita liczba itemów (do total_height)
     QSize                 m_last_size;
     QOpenGLShaderProgram* m_prog    = nullptr;
     GLuint                m_vao     = 0;
