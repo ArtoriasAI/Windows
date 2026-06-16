@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QSet>
 #include <QThread>
+#include <QThreadPool>
 
 namespace LapesEye {
 
@@ -64,7 +65,8 @@ private:
     int           m_size = 256;
     QSet<QString> m_pending_fast;
     QSet<QString> m_pending_full;
-    int           m_gen = 0;  // generation counter — rośnie przy cancel_all()
+    int           m_gen = 0;
+    QThreadPool*  m_thread_pool = nullptr;
 };
 
 } // namespace LapesEye

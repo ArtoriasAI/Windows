@@ -61,19 +61,35 @@ ThumbJob::ThumbJob(const QString& path, int thumb_size,
     setAutoDelete(true);
 }
 
+// Rozmiar cache = rozmiar miniatury — brak skalowania po odczycie
+// Stare wpisy w bazie (512px) będą przeskalowane z USM przy pierwszym odczycie
+static constexpr int MAX_CACHE_SIZE = 512;  // tylko dla detekcji starych wpisów
+
 void ThumbJob::run() {
     bool full = (m_quality == ThumbQuality::Full);
     QImage result;
 
-    // Sprawdź SQLite cache w wątku tła — nie blokuje UI
-    if (!full && m_cache) {
+    // Sprawdź SQLite cache — zawsze przechowuje MAX_CACHE_SIZE
+    // Dzięki temu zmiana suwaka nie wymaga re-decode
+    if (m_cache) {
         auto cached = m_cache->get(m_path);
         if (cached.has_value()) {
-            emit image_ready(m_path, *cached, ThumbQuality::CacheHit, m_generation);
-            return;
+            QImage img = *cached;
+            // Jeśli rozmiar cache pasuje — użyj bezpośrednio z USM
+            // Jeśli nie pasuje (stary wpis 512px) — nie skaluj, tylko wyjdź
+            // i przejdź do regeneracji poniżej (ostrzejszy wynik)
+            bool size_ok = (img.width() == m_size || img.height() == m_size);
+            if (size_ok && !img.isNull()) {
+                if (!img.isNull()) img = usm_thumb(img, 0.65f);
+                emit image_ready(m_path, img, ThumbQuality::CacheHit, m_generation);
+                return;
+            }
+            // Rozmiar nie pasuje — usuń stary wpis i regeneruj
+            m_cache->remove(m_path);
         }
     }
 
+    // Generuj bezpośrednio w m_size — jak v0.5.7, brak pośredniego 512px
     if (FileScanner::is_raw(m_path))
         result = generate_raw(m_path, m_size, full);
     else if (FileScanner::is_psd(m_path))
@@ -81,10 +97,22 @@ void ThumbJob::run() {
     else
         result = generate_raster(m_path, m_size, full);
 
-    if (result.isNull())
+    if (result.isNull()) {
         emit image_failed(m_path);
-    else
-        emit image_ready(m_path, result, m_quality, m_generation);
+        return;
+    }
+
+    // Zapisz do SQLite cache (jeśli jeszcze nie ma)
+    if (m_cache && !full) {
+        QImageReader r(m_path);
+        auto orig = r.size();
+        m_cache->put(m_path, result, orig.width(), orig.height());
+    }
+
+    // USM — ta sama wartość co Lapes Eye sony_curve2 pipeline
+    if (!result.isNull()) result = usm_thumb(result, 0.65f);
+
+    emit image_ready(m_path, result, m_quality, m_generation);
 }
 
 QImage ThumbJob::generate_raster(const QString& path, int size, bool full_quality) {
@@ -228,16 +256,25 @@ QImage ThumbJob::generate_raw(const QString& path, int size, bool full_quality) 
 ThumbWorker::ThumbWorker(ThumbCache* cache, QObject* parent)
     : QObject(parent), m_cache(cache)
 {
-    // Zostaw 1 wątek dla UI, resztę dla miniatur — dostosuj się do CPU
-    int threads = qMax(1, QThread::idealThreadCount() - 1);
-    QThreadPool::globalInstance()->setMaxThreadCount(threads);
-    // Duży bufor zadań — nie ograniczaj kolejki
-    QThreadPool::globalInstance()->setExpiryTimeout(-1);
+    // Dedykowana pula wątków dla miniatur — nie konkuruje z globalną pulą Qt
+    // (QtConcurrent w FullscreenViewer używa globalnej puli)
+    m_thread_pool = new QThreadPool(this);
+
+    // Strategia doboru wątków:
+    // - min 2 (nawet na słabym CPU — I/O i decode równolegle)
+    // - max cores/2 + 1 — nie zagłuszamy UI i innych zadań
+    // - na Twoim PC (16 rdzeni): 9 wątków; słaby PC (4 rdzenie): 3 wątki
+    int cores   = QThread::idealThreadCount();
+    int threads = qBound(2, cores / 2 + 1, 12);
+    m_thread_pool->setMaxThreadCount(threads);
+    m_thread_pool->setExpiryTimeout(-1);  // wątki nie wygasają między zadaniami
+
+    qDebug() << "[ThumbWorker] pula wątków:" << threads << "z" << cores << "rdzeni";
 }
 
 ThumbWorker::~ThumbWorker() {
     cancel_all();
-    QThreadPool::globalInstance()->waitForDone(3000);
+    m_thread_pool->waitForDone(3000);
 }
 
 void ThumbWorker::request(const QString& path, int priority) {
@@ -250,11 +287,11 @@ void ThumbWorker::request(const QString& path, int priority) {
         return;  // canvas narysuje 📁 gdy brak pixmapy
     }
 
-    // 1. Sprawdź RAM cache (QPixmapCache) — natychmiastowe, bez I/O
+    // 1. Sprawdź RAM cache (QPixmapCache) — klucz z rozmiarem
     QString cache_key = path + "@" + QString::number(m_size);
     QPixmap ram_pix;
     if (QPixmapCache::find(cache_key, &ram_pix)) {
-        emit thumb_ready(path, ram_pix, ThumbQuality::Full);
+        emit thumb_ready(path, ram_pix, ThumbQuality::Fast);
         return;
     }
 
@@ -266,7 +303,7 @@ void ThumbWorker::request(const QString& path, int priority) {
                      this, &ThumbWorker::on_image_ready, Qt::QueuedConnection);
     QObject::connect(job, &ThumbJob::image_failed,
                      this, &ThumbWorker::on_image_failed, Qt::QueuedConnection);
-    QThreadPool::globalInstance()->start(job, priority);
+    m_thread_pool->start(job, priority);
 }
 
 void ThumbWorker::request_full_quality(const QString& path) {
@@ -277,7 +314,7 @@ void ThumbWorker::request_full_quality(const QString& path) {
                      this, &ThumbWorker::on_image_ready, Qt::QueuedConnection);
     QObject::connect(job, &ThumbJob::image_failed,
                      this, &ThumbWorker::on_image_failed, Qt::QueuedConnection);
-    QThreadPool::globalInstance()->start(job, 1);  // Full: niższy priorytet
+    m_thread_pool->start(job, 1);  // Full: niższy priorytet
 }
 
 void ThumbWorker::on_image_ready(const QString& path, const QImage& image,
@@ -294,26 +331,14 @@ void ThumbWorker::on_image_ready(const QString& path, const QImage& image,
         m_pending_fast.remove(path);
         QPixmapCache::insert(cache_key, pix);
         emit thumb_ready(path, pix, ThumbQuality::Fast);
-        request_full_quality(path);
 
     } else if (quality == ThumbQuality::Fast) {
         m_pending_fast.remove(path);
-        if (m_cache) {
-            QImageReader r(path);
-            auto orig = r.size();
-            m_cache->put(path, image, orig.width(), orig.height());
-        }
         QPixmapCache::insert(cache_key, pix);
         emit thumb_ready(path, pix, ThumbQuality::Fast);
-        request_full_quality(path);
 
     } else {  // Full
         m_pending_full.remove(path);
-        if (m_cache) {
-            QImageReader r(path);
-            auto orig = r.size();
-            m_cache->put(path, image, orig.width(), orig.height());
-        }
         QPixmapCache::insert(cache_key, pix);
         emit thumb_ready(path, pix, ThumbQuality::Full);
     }
@@ -326,7 +351,7 @@ void ThumbWorker::on_image_failed(const QString& path) {
 
 void ThumbWorker::cancel_all() {
     ++m_gen;  // stare joby będą ignorowane gdy wrócą
-    QThreadPool::globalInstance()->clear();
+    m_thread_pool->clear();
     m_pending_fast.clear();
     m_pending_full.clear();
 }

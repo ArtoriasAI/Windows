@@ -153,6 +153,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 MainWindow::~MainWindow() {
     save_settings();
+    m_thumb_cache->flush();  // zapisz batch przed zamknięciem
     m_thumb_cache->close();
 }
 

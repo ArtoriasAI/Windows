@@ -148,10 +148,9 @@ FullscreenViewer::FullscreenViewer(QWidget* parent)
 // ─── Pomocnicza: oblicz base_size obrazu na ekranie (bez zoom) ───────────────
 QSizeF FullscreenViewer::base_image_size() const {
     if (m_pixmap.isNull()) return {};
-    // Przy zoom używaj rozmiaru aktywnego pixmap
-    const QPixmap& active = (m_zoom > 1.1 && !m_pixmap_full.isNull())
-                            ? m_pixmap_full : m_pixmap;
-    return QSizeF(active.size()).scaled(QSizeF(size()), Qt::KeepAspectRatio);
+    // ZAWSZE używaj m_pixmap do obliczenia base_size — spójna baza dla clamp.
+    // m_pixmap_full używany tylko przez QPainter do rysowania przy zoom > 1.1.
+    return QSizeF(m_pixmap.size()).scaled(QSizeF(size()), Qt::KeepAspectRatio);
 }
 
 // ─── Przelicz punkt ekranu → punkt w pixmapie (0..1 normalizowany) ──────────
@@ -182,7 +181,30 @@ void FullscreenViewer::zoom_at(double new_zoom, const QPointF& focus_screen) {
     m_offset = new_tl - QPointF(width() / 2.0 - new_zoomed.width()  / 2.0,
                                 height()/ 2.0 - new_zoomed.height() / 2.0);
     m_zoom = new_zoom;
+    clamp_offset();
     update();
+}
+
+// ─── Ogranicz offset — obraz nie wyjeżdża poza viewport ──────────────────────
+void FullscreenViewer::clamp_offset() {
+    QSizeF bs = base_image_size();
+    if (bs.isEmpty()) { m_offset = {0, 0}; return; }
+
+    double disp_w = bs.width()  * m_zoom;
+    double disp_h = bs.height() * m_zoom;
+    double view_w = width();
+    double view_h = height();
+
+    if (disp_w <= view_w && disp_h <= view_h) {
+        m_offset = {0.0, 0.0};
+        return;
+    }
+
+    double max_ox = qMax(0.0, (disp_w - view_w) / 2.0);
+    double max_oy = qMax(0.0, (disp_h - view_h) / 2.0);
+
+    m_offset.setX(qBound(-max_ox, m_offset.x(), max_ox));
+    m_offset.setY(qBound(-max_oy, m_offset.y(), max_oy));
 }
 
 // ─── Otwórz viewer ───────────────────────────────────────────────────────────
@@ -201,7 +223,11 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     m_loading_pixmap = QPixmap{};
     ++m_load_gen;  // anuluj ewentualne poprzednie żądania
     ++m_prefetch_gen;  // anuluj stare wątki prefetch
-    m_prefetch_cache.clear();       // nowy folder — stary cache nieaktualny
+    m_prefetch_cache.clear();
+    m_prefetch_full_cache.clear();
+    m_prefetch_full_pix_cache.clear();  // nowy folder — stary full cache nieaktualny
+    m_prefetch_full_in_flight.clear();
+    ++m_prefetch_full_gen;
     m_prefetch_in_flight.clear();
     load_current();
     prefetch_neighbors();
@@ -218,6 +244,7 @@ void FullscreenViewer::navigate(int delta) {
     m_index = new_idx;
     m_pixmap_full = QPixmap{};  // stara pełna rozdzielczość nieaktualna
     ++m_load_gen_full;           // anuluj ewentualne ładowanie w tle
+    // Zoom zachowany — użytkownik chce przeglądać kolejne zdjęcia z tym samym zoom
     m_show_overlay = true;
     m_overlay_timer->start();
     load_current();
@@ -231,36 +258,57 @@ void FullscreenViewer::load_current() {
 
     QString path = m_paths[m_index];
 
-    // 1. Prefetch cache — zdjęcie już gotowe w pełnej jakości
+    static const QSet<QString> raw_exts_main = {
+        "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
+    };
+    bool is_raw = raw_exts_main.contains(QFileInfo(path).suffix().toLower());
+
+    // 1a. Full quality prefetch cache — gotowa pełna jakość, zero ładowania
+    if (m_prefetch_full_cache.contains(path)) {
+        QPixmap pix      = m_prefetch_full_cache.take(path);
+        QPixmap pix_full = m_prefetch_full_pix_cache.take(path);
+        m_prefetch_full_in_flight.remove(path);
+        m_pixmap      = pix;
+        m_pixmap_full = pix_full.isNull() ? pix : pix_full;
+        m_loading     = false;
+        m_fade_from   = QPixmap{};
+        m_fade_alpha  = 1.f;
+        update();
+        prefetch_full_neighbors();
+        return;
+    }
+
+    // 1b. Quarter-size prefetch cache — szybki placeholder, doczytaj pełną jakość
     if (m_prefetch_cache.contains(path)) {
-        QPixmap pix = m_prefetch_cache.take(path);  // weź i usuń z cache
+        QPixmap pix = m_prefetch_cache.take(path);
         m_prefetch_in_flight.remove(path);
         m_pixmap  = pix;
         m_loading = false;
         update();
-        // Prefetch cache zawiera quarter_size RAW — doczytaj etap 2 i 3
-        static const QSet<QString> raw_exts_ch = {
-            "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
-        };
-        if (raw_exts_ch.contains(QFileInfo(path).suffix().toLower()))
-            load_full_resolution();
+        if (is_raw) load_full_resolution();
         return;
     }
 
-    // 2. Placeholder przed wczytaniem właściwego obrazu
-    static const QSet<QString> raw_exts_ph = {
-        "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
-    };
-    bool is_raw_ph = raw_exts_ph.contains(QFileInfo(path).suffix().toLower());
-
-    if (is_raw_ph) {
-        // RAW: wyczyść ekran — czarny do czasu wczytania quarter_size (~50ms)
-        m_loading = true;
-        m_pixmap  = QPixmap{};
-        m_loading_pixmap = QPixmap{};
+    // 2. Placeholder
+    if (is_raw) {
+        // RAW: pokaż JPEG z cache miniatur jako placeholder
+        // Fade ukryje przeskok JPEG→quarter RAW (~50ms)
+        QPixmap jpeg_placeholder;
+        for (int sz : {1200, 600, 400, 300, 250, 220, 200}) {
+            QString cache_key = path + "@" + QString::number(sz);
+            if (QPixmapCache::find(cache_key, &jpeg_placeholder) &&
+                !jpeg_placeholder.isNull()) break;
+        }
+        if (jpeg_placeholder.isNull())
+            QPixmapCache::find(path, &jpeg_placeholder);
+        m_pixmap         = jpeg_placeholder;  // JPEG jako placeholder
+        m_loading_pixmap = jpeg_placeholder;
+        m_loading        = true;
+        m_fade_from      = QPixmap{};
+        m_fade_alpha     = 1.f;
         update();
     } else {
-        // Non-RAW: pokaż miniaturę JPEG z cache jako placeholder
+        // Non-RAW: miniatura z cache jako placeholder
         QPixmap cached_pix;
         for (int sz : {1200, 600, 400, 300, 250, 220, 200}) {
             QString cache_key = path + "@" + QString::number(sz);
@@ -271,33 +319,24 @@ void FullscreenViewer::load_current() {
             QString preview_key = "preview:" + path;
             QPixmapCache::find(preview_key, &cached_pix);
         }
-        if (!cached_pix.isNull()) {
-            m_pixmap = cached_pix;
-            m_loading = true;
-            m_loading_pixmap = cached_pix;
-        } else {
-            m_loading = true;
-            m_loading_pixmap = m_pixmap;
-        }
+        m_pixmap         = cached_pix;
+        m_loading_pixmap = cached_pix;
+        m_loading        = true;
         update();
     }
 
-    // Generacja counter — ignoruj wyniki starych żądań
     int gen = ++m_load_gen;
     QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
 
-    m_future = QtConcurrent::run([this, path, screen_size, gen]() {
+    m_future = QtConcurrent::run([this, path, screen_size, gen, is_raw]() {
         QImage img;
-
-        // Sprawdź czy to RAW — użyj libraw dla szybkiego podglądu
         static const QSet<QString> raw_exts = {
             "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
         };
         QString ext = QFileInfo(path).suffix().toLower();
 
         if (raw_exts.contains(ext)) {
-            // Etap 1: quarter_size = half_size + scale 0.5×
-            // ~50ms, ~800×600 — natychmiastowy podgląd bez JPEG
+            // Etap 1: quarter_size RAW (~50ms) — natychmiastowy podgląd bez JPEG
             LibRaw raw;
             raw.imgdata.params.half_size        = 1;
             raw.imgdata.params.four_color_rgb   = 0;
@@ -323,159 +362,148 @@ void FullscreenViewer::load_current() {
                 if (proc) {
                     QImage half(proc->data, proc->width, proc->height,
                                 proc->width * 3, QImage::Format_RGB888);
-                    // Skaluj do 50% → quarter rozdzielczość (~800×600 dla Sony A7III)
                     img = half.scaled(half.width() / 2, half.height() / 2,
-                                      Qt::IgnoreAspectRatio, Qt::FastTransformation).copy();
+                                      Qt::IgnoreAspectRatio,
+                                      Qt::FastTransformation).copy();
                     LibRaw::dcraw_clear_mem(proc);
                 }
             }
-        }
-
-        // Dla RAW — zmierz factor jasności (ten sam co etap 2)
-        // Dzięki temu etap 1 i 2 mają identyczną jasność — bez skoku przy fade
-        if (raw_exts.contains(ext) && !img.isNull()) {
-            // Krok A: pobierz embedded JPEG i zmierz jego luminancję
-            std::vector<uint8_t> jpeg_lumas_s1;
-            {
-                LibRaw rj;
-                if ((rj.open_file(
+            // Zastosuj korekcję jasności (ta sama logika co load_full_resolution)
+            if (!img.isNull()) {
+                // Pomiar JPEG
+                std::vector<uint8_t> jpeg_lumas_s1;
+                {
+                    LibRaw rj;
+                    if ((rj.open_file(
 #ifdef Q_OS_WIN
                 reinterpret_cast<const wchar_t*>(path.utf16())
 #else
                 path.toLocal8Bit().constData()
 #endif
             )) == LIBRAW_SUCCESS &&
-                    rj.unpack_thumb() == LIBRAW_SUCCESS) {
-                    libraw_processed_image_t* t = rj.dcraw_make_mem_thumb();
-                    if (t && t->type == LIBRAW_IMAGE_JPEG) {
-                        QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
-                        LibRaw::dcraw_clear_mem(t);
-                        QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
-                        QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
-                        QImage ji = rd.read();
-                        if (!ji.isNull()) {
-                            ji = ji.convertToFormat(QImage::Format_RGB32);
-                            jpeg_lumas_s1.reserve(ji.width() * ji.height() / 4);
-                            for (int y = 0; y < ji.height(); y += 2) {
-                                const QRgb* ln = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
-                                for (int x = 0; x < ji.width(); x += 2)
-                                    jpeg_lumas_s1.push_back((uint8_t)(0.299f*qRed(ln[x])
-                                        + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                        rj.unpack_thumb() == LIBRAW_SUCCESS) {
+                        libraw_processed_image_t* t = rj.dcraw_make_mem_thumb();
+                        if (t && t->type == LIBRAW_IMAGE_JPEG) {
+                            QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
+                            LibRaw::dcraw_clear_mem(t);
+                            QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
+                            QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
+                            QImage ji = rd.read();
+                            if (!ji.isNull()) {
+                                ji = ji.convertToFormat(QImage::Format_RGB32);
+                                jpeg_lumas_s1.reserve(ji.width() * ji.height() / 4);
+                                for (int y = 0; y < ji.height(); y += 2) {
+                                    const QRgb* ln = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
+                                    for (int x = 0; x < ji.width(); x += 2)
+                                        jpeg_lumas_s1.push_back((uint8_t)(0.299f*qRed(ln[x])
+                                            + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                                }
+                                std::sort(jpeg_lumas_s1.begin(), jpeg_lumas_s1.end());
                             }
-                            std::sort(jpeg_lumas_s1.begin(), jpeg_lumas_s1.end());
-                        }
-                    } else if (t) { LibRaw::dcraw_clear_mem(t); }
-                }
-            }
-            auto jpeg_pct_s1 = [&](float p) -> float {
-                if (jpeg_lumas_s1.empty()) return -1.f;
-                return (float)jpeg_lumas_s1[(size_t)(jpeg_lumas_s1.size() * p)];
-            };
-            // Krok B: zmierz luminancję RAW etapu 1
-            QImage tmp1 = img.convertToFormat(QImage::Format_RGB32);
-            std::vector<uint8_t> lumas_raw1;
-            lumas_raw1.reserve(tmp1.width() * tmp1.height() / 4);
-            for (int y = 0; y < tmp1.height(); y += 2) {
-                const QRgb* ln = reinterpret_cast<const QRgb*>(tmp1.constScanLine(y));
-                for (int x = 0; x < tmp1.width(); x += 2)
-                    lumas_raw1.push_back((uint8_t)(0.299f*qRed(ln[x])
-                        + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
-            }
-            std::sort(lumas_raw1.begin(), lumas_raw1.end());
-            int n1 = lumas_raw1.size();
-            // Krok C: oblicz factor (ta sama logika co load_full_resolution)
-            float raw_anchor1 = -1.f, jpeg_anchor1 = -1.f, factor1 = 1.f;
-            for (float p = 0.90f; p >= 0.10f; p -= 0.05f) {
-                float rv = (float)lumas_raw1[(size_t)(n1 * p)];
-                if (rv < 128.f) {
-                    raw_anchor1  = rv;
-                    jpeg_anchor1 = jpeg_pct_s1(p);
-                    break;
-                }
-            }
-            if (raw_anchor1 > 1.f) {
-                float ja = std::min(jpeg_anchor1, 253.f);
-                factor1 = ja / raw_anchor1;
-                float max_f = (jpeg_anchor1 > 180.f) ? 1.55f : 2.5f;
-                factor1 = std::clamp(factor1, 0.70f, max_f);
-            }
-            // Zapisz factor dla etapu 2
-            float factor_to_save = factor1;
-            QMetaObject::invokeMethod(this, [this, factor_to_save]() {
-                m_raw_factor = factor_to_save;
-            }, Qt::QueuedConnection);
-            // Krok D: zastosuj factor + vibrance na etapie 1
-            if (std::abs(factor1 - 1.f) > 0.01f) {
-                img = img.convertToFormat(QImage::Format_RGB32);
-                for (int y = 0; y < img.height(); ++y) {
-                    QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
-                    for (int x = 0; x < img.width(); ++x) {
-                        float r = qRed(line[x])   / 255.f;
-                        float g = qGreen(line[x]) / 255.f;
-                        float b = qBlue(line[x])  / 255.f;
-                        float luma = 0.299f*r + 0.587f*g + 0.114f*b;
-                        float t2 = std::clamp((luma - 0.75f) / (0.95f - 0.75f), 0.f, 1.f);
-                        float eff = factor1 * (1.f - t2) + 1.f * t2;
-                        float scale = (luma > 0.001f) ? std::min(eff, 1.f / luma) : 1.f;
-                        line[x] = qRgb(
-                            std::clamp((int)(r * scale * 255.f + .5f), 0, 255),
-                            std::clamp((int)(g * scale * 255.f + .5f), 0, 255),
-                            std::clamp((int)(b * scale * 255.f + .5f), 0, 255));
+                        } else if (t) { LibRaw::dcraw_clear_mem(t); }
                     }
                 }
+                auto jpeg_pct_s1 = [&](float p) -> float {
+                    if (jpeg_lumas_s1.empty()) return -1.f;
+                    return (float)jpeg_lumas_s1[(size_t)(jpeg_lumas_s1.size() * p)];
+                };
+                // Pomiar RAW
+                QImage tmp1 = img.convertToFormat(QImage::Format_RGB32);
+                std::vector<uint8_t> lumas_raw1;
+                lumas_raw1.reserve(tmp1.width() * tmp1.height() / 4);
+                for (int y = 0; y < tmp1.height(); y += 2) {
+                    const QRgb* ln = reinterpret_cast<const QRgb*>(tmp1.constScanLine(y));
+                    for (int x = 0; x < tmp1.width(); x += 2)
+                        lumas_raw1.push_back((uint8_t)(0.299f*qRed(ln[x])
+                            + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                }
+                std::sort(lumas_raw1.begin(), lumas_raw1.end());
+                int n1 = lumas_raw1.size();
+                float raw_anchor1 = -1.f, jpeg_anchor1 = -1.f, factor1 = 1.f;
+                for (float p = 0.90f; p >= 0.10f; p -= 0.05f) {
+                    float rv = (float)lumas_raw1[(size_t)(n1 * p)];
+                    if (rv < 128.f) {
+                        raw_anchor1  = rv;
+                        jpeg_anchor1 = jpeg_pct_s1(p);
+                        break;
+                    }
+                }
+                if (raw_anchor1 > 1.f) {
+                    float ja = std::min(jpeg_anchor1, 253.f);
+                    factor1 = ja / raw_anchor1;
+                    float max_f = (jpeg_anchor1 > 180.f) ? 1.55f : 2.5f;
+                    factor1 = std::clamp(factor1, 0.70f, max_f);
+                }
+                float factor_save = factor1;
+                QMetaObject::invokeMethod(this, [this, factor_save]() {
+                    m_raw_factor = factor_save;
+                }, Qt::QueuedConnection);
+                if (std::abs(factor1 - 1.f) > 0.01f) {
+                    img = img.convertToFormat(QImage::Format_RGB32);
+                    for (int y = 0; y < img.height(); ++y) {
+                        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+                        for (int x = 0; x < img.width(); ++x) {
+                            float r = qRed(line[x])   / 255.f;
+                            float g = qGreen(line[x]) / 255.f;
+                            float b = qBlue(line[x])  / 255.f;
+                            float luma = 0.299f*r + 0.587f*g + 0.114f*b;
+                            float t2 = std::clamp((luma - 0.75f) / (0.95f - 0.75f), 0.f, 1.f);
+                            float eff = factor1 * (1.f - t2) + 1.f * t2;
+                            float scale = (luma > 0.001f) ? std::min(eff, 1.f / luma) : 1.f;
+                            line[x] = qRgb(
+                                std::clamp((int)(r * scale * 255.f + .5f), 0, 255),
+                                std::clamp((int)(g * scale * 255.f + .5f), 0, 255),
+                                std::clamp((int)(b * scale * 255.f + .5f), 0, 255));
+                        }
+                    }
+                }
+                img = apply_vibrance(img, 0.12f);
             }
-            img = apply_vibrance(img, 0.12f);
         }
 
-        // Fallback dla JPEG/PNG/TIFF itp.
+        // Non-RAW fallback
         if (img.isNull()) {
             QImageReader reader(path);
             reader.setAutoTransform(true);
-            // Ładuj pełną rozdzielczość — bez setScaledSize
-            // Dla Sony 6000×4000 to ~96MB RAM ale maksymalna jakość
-            // Skalujemy przez SmoothTransformation dopiero jeśli przekracza 2× ekran
             img = reader.read();
         }
 
         if (img.isNull()) return;
 
-        // Zarządzanie kolorem — konwersja profilu ICC
         img = apply_color_mode(img);
 
-        // Ogranicz rozmiar tylko dla bardzo dużych obrazów (>2× ekran)
-        QSize limit = screen_size;  // screen_size = primaryScreen * 2
-        if (img.width() > limit.width() || img.height() > limit.height())
-            img = img.scaled(limit, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        // JPEG/RAW etap1: skaluj do 2× ekran dla ostrości przy zoom
+        // RAW etap2 (load_full_resolution) używa 1× — ma pix_full do zoom
+        if (img.width() > screen_size.width() || img.height() > screen_size.height())
+            img = img.scaled(screen_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-        // Wyostrzanie po skalowaniu — dla wszystkich formatów
-        img = unsharp_mask(img, 1, 0.6f);
+        img = unsharp_mask(img, 1, 0.65f);
 
-        // Zastosuj rotation z metadanych .leye (obrót ustawiony przez użytkownika)
         int rotation = MetaStore::load(path).rotation;
+        // Cache rotacji dla load_full_resolution — unikamy ponownego odczytu JSON
+        QMetaObject::invokeMethod(this, [this, rotation]() {
+            m_cached_rotation = rotation;
+        }, Qt::QueuedConnection);
         if (rotation != 0) {
-            QTransform t;
-            t.rotate(rotation);
+            QTransform t; t.rotate(rotation);
             img = img.transformed(t, Qt::SmoothTransformation);
         }
 
         QPixmap pix = QPixmap::fromImage(img);
         qDebug() << "[FSV] załadowano:" << QFileInfo(path).fileName()
                  << "rozmiar:" << img.size();
-        bool is_raw_cb = raw_exts.contains(ext);
-        QMetaObject::invokeMethod(this, [this, pix, gen, is_raw_cb]() {
+        QMetaObject::invokeMethod(this, [this, pix, gen, is_raw]() {
             if (gen != m_load_gen) return;
             m_loading = false;
-            // Etap 1: cross-fade z poprzedniego zdjęcia do quarter_size RAW
-            start_fade(pix);
-            // RAW: od razu etap 2 (full quality) w tle
-            if (is_raw_cb)
-                load_full_resolution();
+            // Szybki fade JPEG→quarter RAW (~100ms) — zmiana jest subtelna
+            start_fade(pix, is_raw ? 0.16f : 0.07f);
+            if (is_raw) load_full_resolution();
         }, Qt::QueuedConnection);
     });
 }
 
 
-// ─── Ładowanie pełnej rozdzielczości do zoom-in ──────────────────────────────
+// ─── Etap 2: pełna jakość RAW z korekcją kolorów ────────────────────────────
 void FullscreenViewer::load_full_resolution() {
     if (m_paths.isEmpty()) return;
     QString path = m_paths[m_index];
@@ -491,8 +519,8 @@ void FullscreenViewer::load_full_resolution() {
 
     [[maybe_unused]] auto future = QtConcurrent::run([this, path, gen]() {
 
-        // ── Krok 1: Zmierz jasność embedded JPEG (referencja = Sony JPEG) ────
-        float jpeg_p90 = -1.f;
+        // ── Krok 1: Zmierz jasność embedded JPEG ────────────────────────────
+        std::vector<uint8_t> jpeg_lumas;
         {
             LibRaw rj;
             if ((rj.open_file(
@@ -508,27 +536,28 @@ void FullscreenViewer::load_full_resolution() {
                     QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
                     LibRaw::dcraw_clear_mem(t);
                     QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
-                    QImageReader rd(&buf, "JPEG");
-                    rd.setAutoTransform(true);
+                    QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
                     QImage ji = rd.read();
                     if (!ji.isNull()) {
                         ji = ji.convertToFormat(QImage::Format_RGB32);
-                        std::vector<uint8_t> lumas;
-                        lumas.reserve(ji.width() * ji.height() / 4);
+                        jpeg_lumas.reserve(ji.width() * ji.height() / 4);
                         for (int y = 0; y < ji.height(); y += 2) {
-                            const QRgb* line = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
+                            const QRgb* ln = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
                             for (int x = 0; x < ji.width(); x += 2)
-                                lumas.push_back((uint8_t)(0.299f*qRed(line[x])
-                                    + 0.587f*qGreen(line[x]) + 0.114f*qBlue(line[x])));
+                                jpeg_lumas.push_back((uint8_t)(0.299f*qRed(ln[x])
+                                    + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
                         }
-                        std::sort(lumas.begin(), lumas.end());
-                        jpeg_p90 = lumas[(int)(lumas.size() * 0.90f)];
+                        std::sort(jpeg_lumas.begin(), jpeg_lumas.end());
                     }
                 } else if (t) { LibRaw::dcraw_clear_mem(t); }
             }
         }
+        auto jpeg_pct = [&](float p) -> float {
+            if (jpeg_lumas.empty()) return -1.f;
+            return (float)jpeg_lumas[(size_t)(jpeg_lumas.size() * p)];
+        };
 
-        // ── Krok 2: Decode RAW z bright=1.0, neutralny ───────────────────────
+        // ── Krok 2: Pełny decode RAW ─────────────────────────────────────────
         LibRaw raw;
         raw.imgdata.params.half_size        = 0;
         raw.imgdata.params.use_camera_wb    = 1;
@@ -537,7 +566,7 @@ void FullscreenViewer::load_full_resolution() {
         raw.imgdata.params.output_color     = 1;
         raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
         raw.imgdata.params.gamm[1]          = 4.5;
-        raw.imgdata.params.no_auto_bright   = 1;  // neutralny, bez auto
+        raw.imgdata.params.no_auto_bright   = 1;
         raw.imgdata.params.bright           = 1.0f;
         raw.imgdata.params.user_flip        = -1;
 
@@ -561,58 +590,42 @@ void FullscreenViewer::load_full_resolution() {
         if (img.isNull()) return;
 
         // ── Krok 3: Dopasuj jasność RAW do JPEG ─────────────────────────────
-        // Używamy wielu percentyli żeby obsłużyć przepalone zdjęcia (p90=255)
-        // LUT aplikowana na luminancji — kolory nie są zmieniane
-        if (jpeg_p90 > 0.f) {
-            // Zbierz luminancje RAW (próbkowanie co 2. piksel)
+        if (!jpeg_lumas.empty()) {
             QImage tmp = img.convertToFormat(QImage::Format_RGB32);
             std::vector<uint8_t> lumas_raw;
             lumas_raw.reserve(tmp.width() * tmp.height() / 4);
             for (int y = 0; y < tmp.height(); y += 2) {
-                const QRgb* line = reinterpret_cast<const QRgb*>(tmp.constScanLine(y));
+                const QRgb* ln = reinterpret_cast<const QRgb*>(tmp.constScanLine(y));
                 for (int x = 0; x < tmp.width(); x += 2)
-                    lumas_raw.push_back((uint8_t)(0.299f*qRed(line[x])
-                        + 0.587f*qGreen(line[x]) + 0.114f*qBlue(line[x])));
+                    lumas_raw.push_back((uint8_t)(0.299f*qRed(ln[x])
+                        + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
             }
             std::sort(lumas_raw.begin(), lumas_raw.end());
             int n = lumas_raw.size();
 
-            // Wybierz najwyższy percentyl poniżej 255 jako punkt kotwicy
-            float anchor_pct = 0.90f;
-            float raw_anchor = lumas_raw[(int)(n * anchor_pct)];
-            float jpeg_anchor = jpeg_p90;
-            bool used_fallback = false;
-
-            // Jeśli p90=255 (przepalone okna/lampy) — zejdź do niższego percentyla
-            // ale tylko dla RAW; jpeg_anchor zostaje proporcjonalnie zmniejszony
-            if (raw_anchor >= 254.f && jpeg_anchor >= 254.f) {
-                // Oba przepalone — nie ma jak dopasować, użyj bright=0.90
-                used_fallback = true;
-            } else {
-                while (raw_anchor >= 254.f && anchor_pct > 0.50f) {
-                    anchor_pct -= 0.10f;
-                    raw_anchor  = lumas_raw[(int)(n * anchor_pct)];
-                    // jpeg_anchor: jeśli jpeg_p90=255 nie możemy go skalować
-                    // używamy stałego współczynnika 0.90 jako bazowego
-                    jpeg_anchor = (jpeg_p90 < 255.f)
-                        ? jpeg_p90 * (anchor_pct / 0.90f)
-                        : 230.f * (anchor_pct / 0.90f);  // 230 = empiryczna baza dla przepalonych
+            float raw_anchor = -1.f, jpeg_anchor = -1.f, anchor_pct = -1.f;
+            for (float p = 0.90f; p >= 0.10f; p -= 0.05f) {
+                float rv = (float)lumas_raw[(size_t)(n * p)];
+                if (rv < 128.f) {
+                    raw_anchor  = rv;
+                    jpeg_anchor = jpeg_pct(p);
+                    anchor_pct  = p;
+                    break;
                 }
             }
 
             float factor = 1.0f;
-            if (used_fallback) {
-                factor = 0.90f;  // oba przepalone — stały bright
-            } else {
-                factor = (raw_anchor > 1.f) ? (jpeg_anchor / raw_anchor) : 1.f;
-                factor = std::max(0.5f, std::min(2.5f, factor));
+            if (raw_anchor > 1.f) {
+                float ja = std::min(jpeg_anchor, 253.f);
+                factor = ja / raw_anchor;
+                float max_factor = (jpeg_anchor > 180.f) ? 1.55f : 2.5f;
+                factor = std::clamp(factor, 0.70f, max_factor);
             }
 
-            qDebug() << "[FSV] jpeg_p90=" << jpeg_p90 << "raw_anchor=" << raw_anchor
+            qDebug() << "[FSV] anchor_pct=" << anchor_pct << "raw_anchor=" << raw_anchor
                      << "jpeg_anchor=" << jpeg_anchor << "factor=" << factor;
 
-            if (std::abs(factor - 1.0f) > 0.01f) {
-                // Zastosuj factor na luminancji — zachowuje kolory (H, S)
+            if (std::abs(factor - 1.f) > 0.01f) {
                 img = img.convertToFormat(QImage::Format_RGB32);
                 for (int y = 0; y < img.height(); ++y) {
                     QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
@@ -621,25 +634,24 @@ void FullscreenViewer::load_full_resolution() {
                         float g = qGreen(line[x]) / 255.f;
                         float b = qBlue(line[x])  / 255.f;
                         float luma = 0.299f*r + 0.587f*g + 0.114f*b;
-                        float new_luma = std::min(luma * factor, 1.f);
-                        // Skaluj R,G,B proporcjonalnie zachowując stosunek kolorów
-                        float scale = (luma > 0.001f) ? (new_luma / luma) : 1.f;
-                        int ri = std::clamp((int)(r * scale * 255.f + .5f), 0, 255);
-                        int gi = std::clamp((int)(g * scale * 255.f + .5f), 0, 255);
-                        int bi = std::clamp((int)(b * scale * 255.f + .5f), 0, 255);
-                        line[x] = qRgb(ri, gi, bi);
+                        float t2 = std::clamp((luma - 0.75f) / (0.95f - 0.75f), 0.f, 1.f);
+                        float eff = factor * (1.f - t2) + 1.f * t2;
+                        float scale = (luma > 0.001f) ? std::min(eff, 1.f / luma) : 1.f;
+                        line[x] = qRgb(
+                            std::clamp((int)(r * scale * 255.f + .5f), 0, 255),
+                            std::clamp((int)(g * scale * 255.f + .5f), 0, 255),
+                            std::clamp((int)(b * scale * 255.f + .5f), 0, 255));
                     }
                 }
             }
         }
 
-
-        // ── Krok 4: Jaskrawość +12% ───────────────────────────────────────────
+        // ── Krok 4: Vibrance +12% ────────────────────────────────────────────
         img = apply_vibrance(img, 0.12f);
-
         img = apply_color_mode(img);
 
-        int rotation = MetaStore::load(path).rotation;
+        // Użyj cache rotacji z load_current — unikamy ponownego odczytu JSON
+        int rotation = m_cached_rotation;
         if (rotation != 0) {
             QTransform t; t.rotate(rotation);
             img = img.transformed(t, Qt::SmoothTransformation);
@@ -650,19 +662,203 @@ void FullscreenViewer::load_full_resolution() {
         QSize screen = QGuiApplication::primaryScreen()->size();
         QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
         QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio,
-                                    Qt::SmoothTransformation);
-        scaled = unsharp_mask(scaled, 1, 0.6f);
+                                   Qt::SmoothTransformation);
+        scaled = unsharp_mask(scaled, 1, 0.65f);
         QPixmap pix = QPixmap::fromImage(scaled);
 
         QMetaObject::invokeMethod(this, [this, pix, pix_full, gen]() {
             if (gen != m_load_gen_full) return;
             m_pixmap_full  = pix_full;
             m_loading_full = false;
-            start_fade(pix);  // płynne cross-fade quarter_size → full quality
+            start_fade(pix, 0.07f);  // płynne cross-fade quarter→full ~250ms
+            // Po załadowaniu pełnej jakości bieżącego — prefetch pełnej jakości sąsiadów
+            prefetch_full_neighbors();
         }, Qt::QueuedConnection);
     });
 }
 
+
+// ─── Prefetch pełnej jakości sąsiadów (po załadowaniu bieżącego) ─────────────
+void FullscreenViewer::prefetch_full_neighbors() {
+    if (m_paths.isEmpty()) return;
+    // Nie inkrementujemy m_prefetch_full_gen — to anulowałoby wyniki
+    // trwających prefetchów. Zamiast tego sprawdzamy m_index przy zapisie.
+    int fgen = m_prefetch_full_gen;
+
+    static const QSet<QString> raw_exts = {
+        "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
+    };
+
+    // Prefetchuj tylko bezpośrednich sąsiadów (±1) — pełny decode jest ciężki
+    for (int d : {-1, 1, -2, 2}) {
+        int idx = m_index + d;
+        if (idx < 0 || idx >= m_paths.size()) continue;
+        QString path = m_paths[idx];
+        QString ext  = QFileInfo(path).suffix().toLower();
+
+        // Tylko RAW — JPEG ładuje się szybko sam
+        if (!raw_exts.contains(ext)) continue;
+
+        // Już w full cache lub w locie — pomiń
+        if (m_prefetch_full_cache.contains(path)) continue;
+        if (m_prefetch_full_in_flight.contains(path)) continue;
+
+        m_prefetch_full_in_flight.insert(path);
+
+        [[maybe_unused]] auto f = QtConcurrent::run([this, path, fgen]() {
+            // Pełny pipeline identyczny jak load_full_resolution
+            std::vector<uint8_t> jpeg_lumas;
+            {
+                LibRaw rj;
+                if ((rj.open_file(
+#ifdef Q_OS_WIN
+                reinterpret_cast<const wchar_t*>(path.utf16())
+#else
+                path.toLocal8Bit().constData()
+#endif
+            )) == LIBRAW_SUCCESS &&
+                    rj.unpack_thumb() == LIBRAW_SUCCESS) {
+                    libraw_processed_image_t* t = rj.dcraw_make_mem_thumb();
+                    if (t && t->type == LIBRAW_IMAGE_JPEG) {
+                        QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
+                        LibRaw::dcraw_clear_mem(t);
+                        QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
+                        QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
+                        QImage ji = rd.read();
+                        if (!ji.isNull()) {
+                            ji = ji.convertToFormat(QImage::Format_RGB32);
+                            jpeg_lumas.reserve(ji.width() * ji.height() / 4);
+                            for (int y = 0; y < ji.height(); y += 2) {
+                                const QRgb* ln = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
+                                for (int x = 0; x < ji.width(); x += 2)
+                                    jpeg_lumas.push_back((uint8_t)(0.299f*qRed(ln[x])
+                                        + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                            }
+                            std::sort(jpeg_lumas.begin(), jpeg_lumas.end());
+                        }
+                    } else if (t) { LibRaw::dcraw_clear_mem(t); }
+                }
+            }
+            auto jpeg_pct = [&](float p) -> float {
+                if (jpeg_lumas.empty()) return -1.f;
+                return (float)jpeg_lumas[(size_t)(jpeg_lumas.size() * p)];
+            };
+
+            LibRaw raw;
+            raw.imgdata.params.half_size        = 0;
+            raw.imgdata.params.use_camera_wb    = 1;
+            raw.imgdata.params.use_auto_wb      = 0;
+            raw.imgdata.params.use_camera_matrix= 1;
+            raw.imgdata.params.output_color     = 1;
+            raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
+            raw.imgdata.params.gamm[1]          = 4.5;
+            raw.imgdata.params.no_auto_bright   = 1;
+            raw.imgdata.params.bright           = 1.0f;
+            raw.imgdata.params.user_flip        = -1;
+
+            QImage img;
+            if ((raw.open_file(
+#ifdef Q_OS_WIN
+                reinterpret_cast<const wchar_t*>(path.utf16())
+#else
+                path.toLocal8Bit().constData()
+#endif
+            )) == LIBRAW_SUCCESS &&
+                raw.unpack()        == LIBRAW_SUCCESS &&
+                raw.dcraw_process() == LIBRAW_SUCCESS) {
+                libraw_processed_image_t* proc = raw.dcraw_make_mem_image();
+                if (proc) {
+                    img = QImage(proc->data, proc->width, proc->height,
+                                 proc->width * 3, QImage::Format_RGB888).copy();
+                    LibRaw::dcraw_clear_mem(proc);
+                }
+            }
+            if (img.isNull()) {
+                QMetaObject::invokeMethod(this, [this, path, fgen]() {
+                    if (fgen == m_prefetch_full_gen)
+                        m_prefetch_full_in_flight.remove(path);
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            // Korekcja jasności
+            if (!jpeg_lumas.empty()) {
+                QImage tmp = img.convertToFormat(QImage::Format_RGB32);
+                std::vector<uint8_t> lumas_raw;
+                lumas_raw.reserve(tmp.width() * tmp.height() / 4);
+                for (int y = 0; y < tmp.height(); y += 2) {
+                    const QRgb* ln = reinterpret_cast<const QRgb*>(tmp.constScanLine(y));
+                    for (int x = 0; x < tmp.width(); x += 2)
+                        lumas_raw.push_back((uint8_t)(0.299f*qRed(ln[x])
+                            + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                }
+                std::sort(lumas_raw.begin(), lumas_raw.end());
+                int n = lumas_raw.size();
+                float raw_anchor = -1.f, jpeg_anchor = -1.f;
+                for (float p = 0.90f; p >= 0.10f; p -= 0.05f) {
+                    float rv = (float)lumas_raw[(size_t)(n * p)];
+                    if (rv < 128.f) { raw_anchor = rv; jpeg_anchor = jpeg_pct(p); break; }
+                }
+                if (raw_anchor > 1.f) {
+                    float ja = std::min(jpeg_anchor, 253.f);
+                    float factor = std::clamp(ja / raw_anchor, 0.70f,
+                                              (jpeg_anchor > 180.f) ? 1.55f : 2.5f);
+                    if (std::abs(factor - 1.f) > 0.01f) {
+                        img = img.convertToFormat(QImage::Format_RGB32);
+                        for (int y = 0; y < img.height(); ++y) {
+                            QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+                            for (int x = 0; x < img.width(); ++x) {
+                                float r = qRed(line[x])   / 255.f;
+                                float g = qGreen(line[x]) / 255.f;
+                                float b = qBlue(line[x])  / 255.f;
+                                float luma = 0.299f*r + 0.587f*g + 0.114f*b;
+                                float t2 = std::clamp((luma-0.75f)/(0.95f-0.75f), 0.f, 1.f);
+                                float eff = factor*(1.f-t2) + 1.f*t2;
+                                float scale = (luma > 0.001f) ? std::min(eff, 1.f/luma) : 1.f;
+                                line[x] = qRgb(
+                                    std::clamp((int)(r*scale*255.f+.5f), 0, 255),
+                                    std::clamp((int)(g*scale*255.f+.5f), 0, 255),
+                                    std::clamp((int)(b*scale*255.f+.5f), 0, 255));
+                            }
+                        }
+                    }
+                }
+            }
+
+            img = apply_vibrance(img, 0.12f);
+            img = apply_color_mode(img);
+
+            // Prefetch: odczyt rotacji konieczny (inne zdjęcie niż bieżące)
+            int rotation = MetaStore::load(path).rotation;
+            if (rotation != 0) {
+                QTransform t; t.rotate(rotation);
+                img = img.transformed(t, Qt::SmoothTransformation);
+            }
+
+            // Identyczna kolejność jak load_full_resolution:
+            // skalowanie → apply_color_mode → unsharp_mask
+            // pix_full — pełna rozdzielczość do zoom-in (identycznie jak load_full_resolution)
+            QPixmap pix_full = QPixmap::fromImage(img);
+
+            QSize screen = QGuiApplication::primaryScreen()->size();
+            QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
+            QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            scaled = unsharp_mask(scaled, 1, 0.65f);
+            QPixmap pix = QPixmap::fromImage(scaled);
+
+            QMetaObject::invokeMethod(this, [this, path, pix, pix_full]() {
+                m_prefetch_full_in_flight.remove(path);
+                int idx = m_paths.indexOf(path);
+                if (idx >= 0 && qAbs(idx - m_index) <= 4)
+                    m_prefetch_full_cache[path] = pix;
+                // pix_full zapisz osobno dla zoom-in
+                if (idx >= 0 && qAbs(idx - m_index) <= 4)
+                    m_prefetch_full_pix_cache[path] = pix_full;
+                qDebug() << "[FSV] prefetch full:" << QFileInfo(path).fileName();
+            }, Qt::QueuedConnection);
+        });
+    }
+}
 
 // ─── Prefetch sąsiednich zdjęć ───────────────────────────────────────────────
 void FullscreenViewer::prefetch_neighbors() {
@@ -690,7 +886,7 @@ void FullscreenViewer::prefetch_neighbors() {
                 QString ext = QFileInfo(path).suffix().toLower();
 
                 if (raw_exts.contains(ext)) {
-                    // Prefetch: quarter_size (etap 1) — szybki placeholder bez JPEG
+                    // Prefetch: quarter_size RAW — bez JPEG, szybki placeholder
                     LibRaw raw;
                     raw.imgdata.params.half_size        = 1;
                     raw.imgdata.params.four_color_rgb   = 0;
@@ -717,7 +913,8 @@ void FullscreenViewer::prefetch_neighbors() {
                             QImage half(proc->data, proc->width, proc->height,
                                         proc->width * 3, QImage::Format_RGB888);
                             img = half.scaled(half.width() / 2, half.height() / 2,
-                                              Qt::IgnoreAspectRatio, Qt::FastTransformation).copy();
+                                              Qt::IgnoreAspectRatio,
+                                              Qt::FastTransformation).copy();
                             LibRaw::dcraw_clear_mem(proc);
                         }
                     }
@@ -736,17 +933,17 @@ void FullscreenViewer::prefetch_neighbors() {
                 }
 
                 img = apply_color_mode(img);
-                QSize limit = screen_size;
-                if (img.width() > limit.width() || img.height() > limit.height())
-                    img = img.scaled(limit, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                if (raw_exts.contains(ext))
-                    img = unsharp_mask(img, 1, 0.6f);
 
                 int rotation = MetaStore::load(path).rotation;
                 if (rotation != 0) {
                     QTransform t; t.rotate(rotation);
                     img = img.transformed(t, Qt::SmoothTransformation);
                 }
+
+                // JPEG: skaluj do 2× ekran (identycznie jak load_current)
+                if (img.width() > screen_size.width() || img.height() > screen_size.height())
+                    img = img.scaled(screen_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                img = unsharp_mask(img, 1, 0.65f);
 
                 QPixmap pix = QPixmap::fromImage(img);
                 QMetaObject::invokeMethod(this, [this, path, pix, pgen]() {
@@ -764,17 +961,18 @@ void FullscreenViewer::prefetch_neighbors() {
 }
 
 // ─── Rysowanie ───────────────────────────────────────────────────────────────
-// ─── Cross-fade między etapem 1 (quarter) a etapem 2 (full quality) ─────────
-void FullscreenViewer::start_fade(const QPixmap& next) {
-    m_fade_from  = m_pixmap;   // zachowaj stary (quarter_size) jako tło
-    m_pixmap     = next;        // nowy obraz gotowy
+// ─── Cross-fade między etapami ──────────────────────────────────────────────
+void FullscreenViewer::start_fade(const QPixmap& next, float speed) {
+    m_fade_from  = m_pixmap;
+    m_pixmap     = next;
     m_fade_alpha = 0.f;
+    m_fade_speed = speed;
 
     if (!m_fade_timer) {
         m_fade_timer = new QTimer(this);
-        m_fade_timer->setInterval(16);  // ~60fps
+        m_fade_timer->setInterval(16);
         connect(m_fade_timer, &QTimer::timeout, this, [this]() {
-            m_fade_alpha += 0.07f;  // ~250ms całość (16ms × 16 kroków)
+            m_fade_alpha += m_fade_speed;
             if (m_fade_alpha >= 1.f) {
                 m_fade_alpha = 1.f;
                 m_fade_from  = QPixmap{};
@@ -788,6 +986,9 @@ void FullscreenViewer::start_fade(const QPixmap& next) {
 }
 
 void FullscreenViewer::paintEvent(QPaintEvent*) {
+    // Przy zoom>1.1: preferuj m_pixmap_full (pełna rozdzielczość)
+    // Gdy m_pixmap_full jeszcze nie wczytane — użyj m_pixmap (quarter/preview)
+    // Jest to lepsze niż pusty ekran podczas ładowania load_full_resolution
     const QPixmap& pix = m_loading      ? m_loading_pixmap
                        : (m_zoom > 1.1 && !m_pixmap_full.isNull()) ? m_pixmap_full
                        : m_pixmap;
@@ -817,11 +1018,9 @@ void FullscreenViewer::paintEvent(QPaintEvent*) {
     // Cross-fade między etapami
     if (m_fade_alpha < 1.f) {
         if (!m_fade_from.isNull()) {
-            // Fade między dwoma obrazami (etap1→etap2)
             p.setOpacity(1.0);
             p.drawPixmap(QRectF(tl, zoomed), m_fade_from, QRectF(m_fade_from.rect()));
         }
-        // Nowy obraz narasta (działa też przy fade z czarnego — tło już czarne)
         p.setOpacity(m_fade_alpha);
         p.drawPixmap(QRectF(tl, zoomed), pix, QRectF(pix.rect()));
         p.setOpacity(1.0);
@@ -874,9 +1073,14 @@ void FullscreenViewer::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     m_press_pos  = e->pos();
     m_press_time = QTime::currentTime();
+    QSizeF bs = base_image_size();
+    bool can_pan = !bs.isEmpty() &&
+                   (bs.width()  * m_zoom > width() ||
+                    bs.height() * m_zoom > height());
     m_panning      = false;
     m_pan_start    = e->pos();
     m_offset_start = m_offset;
+    if (!can_pan) return;
 }
 
 void FullscreenViewer::mouseMoveEvent(QMouseEvent* e) {
@@ -888,10 +1092,15 @@ void FullscreenViewer::mouseMoveEvent(QMouseEvent* e) {
         if (!m_panning && delta.manhattanLength() > 4) m_panning = true;
         if (m_panning) {
             m_offset = m_offset_start + QPointF(delta);
+            clamp_offset();
             setCursor(Qt::ClosedHandCursor);
         }
     } else {
-        setCursor(Qt::ArrowCursor);
+        QSizeF bs = base_image_size();
+        bool can_pan = !bs.isEmpty() &&
+                       (bs.width()  * m_zoom > width() ||
+                        bs.height() * m_zoom > height());
+        setCursor(can_pan ? Qt::OpenHandCursor : Qt::ArrowCursor);
     }
     update();
 }
@@ -952,6 +1161,7 @@ void FullscreenViewer::wheelEvent(QWheelEvent* e) {
 
 void FullscreenViewer::resizeEvent(QResizeEvent* e) {
     QWidget::resizeEvent(e);
+    clamp_offset();
     update();
 }
 

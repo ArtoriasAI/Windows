@@ -74,8 +74,9 @@ bool ThumbCache::create_schema() {
             created_at INTEGER NOT NULL
         )
     )");
-    // Dodaj kolumnę thumb_jpeg jeśli nie istnieje (migracja)
+    // Migracje — dodaj kolumny jeśli nie istnieją
     q.exec("ALTER TABLE thumbnails ADD COLUMN thumb_jpeg BLOB");
+    q.exec("ALTER TABLE thumbnails ADD COLUMN thumb_size INTEGER NOT NULL DEFAULT 0");
     return ok;
 }
 
@@ -140,20 +141,52 @@ void ThumbCache::put(const QString& path, const QImage& thumb,
     buf.open(QIODevice::WriteOnly);
     thumb.save(&buf, "JPEG", 85);
 
+    // Dodaj do kolejki batch — nie zapisuj od razu żeby uniknąć setek
+    // osobnych transakcji przy ładowaniu dużego folderu
+    BatchEntry entry;
+    entry.path      = path;
+    entry.mtime     = mtime;
+    entry.size      = size;
+    entry.blob      = blob;
+    entry.orig_w    = orig_w;
+    entry.orig_h    = orig_h;
+    entry.thumb_w   = thumb.width();
+    entry.now       = now;
+    m_batch.append(std::move(entry));
+
+    // Flush co BATCH_SIZE wpisów lub od razu jeśli batch jest duży
+    if (m_batch.size() >= BATCH_SIZE)
+        flush_batch_locked();
+}
+
+void ThumbCache::flush_batch_locked() {
+    if (m_batch.isEmpty()) return;
+
+    m_db.transaction();
     QSqlQuery q(m_db);
     q.prepare(R"(
         INSERT OR REPLACE INTO thumbnails
-            (path, mtime, size, thumb_png, thumb_jpeg, width, height, created_at)
-        VALUES (?, ?, ?, X'', ?, ?, ?, ?)
+            (path, mtime, size, thumb_png, thumb_jpeg, width, height, thumb_size, created_at)
+        VALUES (?, ?, ?, X'', ?, ?, ?, ?, ?)
     )");
-    q.addBindValue(path);
-    q.addBindValue(mtime);
-    q.addBindValue(size);
-    q.addBindValue(blob);
-    q.addBindValue(orig_w);
-    q.addBindValue(orig_h);
-    q.addBindValue(now);
-    q.exec();
+    for (const auto& e : m_batch) {
+        q.addBindValue(e.path);
+        q.addBindValue(e.mtime);
+        q.addBindValue(e.size);
+        q.addBindValue(e.blob);
+        q.addBindValue(e.orig_w);
+        q.addBindValue(e.orig_h);
+        q.addBindValue(e.thumb_w);
+        q.addBindValue(e.now);
+        q.exec();
+    }
+    m_db.commit();
+    m_batch.clear();
+}
+
+void ThumbCache::flush() {
+    QMutexLocker lock(&m_mutex);
+    flush_batch_locked();
 }
 
 void ThumbCache::remove(const QString& path) {

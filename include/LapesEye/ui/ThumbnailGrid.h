@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QList>
 #include <QTimer>
+#include <QCollator>
 #include <QFileSystemWatcher>
 #include <QRubberBand>
 #include "LapesEye/ui/RubberOverlay.h"
@@ -228,6 +229,7 @@ private:
 
     // ─── Timery ──────────────────────────────────────────────────────────────
     QTimer*       m_zoom_timer    = nullptr;
+    QCollator     m_collator;  // cachowany — inicjalizacja locale jest kosztowna
     QTimer*       m_visible_timer = nullptr;
     QTimer*       m_rubber_timer  = nullptr;
     QTimer*       m_resize_timer  = nullptr;

@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
     app.setOrganizationName("Lape");
-    app.setApplicationVersion("0.5.7");
+    app.setApplicationVersion("0.5.8");
     app.setDesktopFileName("lapes-eye");
 
     // Ikona aplikacji — wielorozdzielcza z QRC

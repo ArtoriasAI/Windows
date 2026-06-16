@@ -46,7 +46,8 @@ public:
     explicit ThumbnailCanvas(QWidget* parent = nullptr);
     ~ThumbnailCanvas() override;
 
-    void set_items(QVector<ThumbnailCanvasItem> items);
+    void set_items(QVector<ThumbnailCanvasItem> items, int first_idx = 0);
+    void set_total_count(int n) { m_total_count = n; }
     void set_thumb_size(int size);
     void set_explicit_width(int w) { m_explicit_width = w; }
     void set_selected(const QSet<QString>& selected);
@@ -146,7 +147,7 @@ private:
     void gl_draw_quad_color(GL45* f, float x, float y, float w, float h,
                              float r, float g, float b, float a = 1.f);
     void gl_draw_quad_tex(GL45* f, float x, float y, float w, float h,
-                           GLuint tex, float alpha = 1.f);
+                           GLuint tex, float alpha = 1.f, float flip_y = 0.f);
 
     struct GpuEntry {
         GLuint  thumb_id     = 0;   // tekstura miniatury w VRAM
@@ -167,6 +168,13 @@ private:
     QOffscreenSurface*       m_gl_surf  = nullptr;
     QOpenGLFramebufferObject*m_gl_fbo   = nullptr;  // cache FBO — nie alokuj per frame
     QSize                    m_fbo_size;             // rozmiar cache FBO
+
+    // PBO — asynchroniczny odczyt FBO (Etap 1)
+    static constexpr int       MAX_UPLOADS_PER_FRAME = 6;
+    int                        m_uploads_this_frame = 0;
+    QVector<QString>           m_upload_queue;  // kolejka nadmiarowych uploadów
+    int                        m_items_offset = 0;   // indeks pierwszego itemu w m_visible
+    int                        m_total_count  = 0;   // całkowita liczba itemów (do total_height)
     QSize                 m_last_size;
     QOpenGLShaderProgram* m_prog    = nullptr;
     GLuint                m_vao     = 0;
@@ -176,6 +184,7 @@ private:
     int  m_u_color   = -1;
     int  m_u_use_tex = -1;
     int  m_u_alpha   = -1;
+    int  m_u_flip_y  = -1;
     QMatrix4x4 m_proj;
 #endif
 };

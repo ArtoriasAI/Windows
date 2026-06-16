@@ -56,9 +56,10 @@ ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
     });
 }
 
-void ThumbnailCanvas::set_items(QVector<ThumbnailCanvasItem> items) {
+void ThumbnailCanvas::set_items(QVector<ThumbnailCanvasItem> items, int first_idx) {
     PERF_SCOPE("set_items");
     m_items = std::move(items);
+    m_items_offset = first_idx;
     for (auto& ci : m_items) {
         if (ci.thumb.isNull()) {
             auto it = m_pixmap_store.find(ci.file.path);
@@ -70,7 +71,6 @@ void ThumbnailCanvas::set_items(QVector<ThumbnailCanvasItem> items) {
     int h = total_height();
     setFixedHeight(qMax(1, h));
 #if LEYE_HAS_GL
-    // Invaliduj wszystkie overlay — rozmiar kafelka mógł się zmienić
     for (auto& e : m_gpu) { e.overlay_dirty = true; e.ov_w = 0; e.ov_h = 0; }
 #endif
     update();
@@ -186,10 +186,10 @@ int ThumbnailCanvas::cell_size() const {
 }
 
 int ThumbnailCanvas::total_height() const {
-    if (m_items.isEmpty()) return 0;
+    int count = (m_total_count > 0) ? m_total_count : (int)m_items.size();
+    if (count == 0) return 0;
     int c = cols();
-    int n_rows = (m_items.size() + c - 1) / c;
-    // Wiersze + odstępy między wierszami
+    int n_rows = (count + c - 1) / c;
     return n_rows * cell_size() + (n_rows + 1) * CELL_GAP;
 }
 
@@ -269,12 +269,24 @@ void ThumbnailCanvas::paintEvent(QPaintEvent* e) {
             f->glViewport(0, 0, vw, vh);
             f->glClearColor(0x1e/255.f, 0x1e/255.f, 0x1e/255.f, 1.f);
             f->glClear(GL_COLOR_BUFFER_BIT);
+            m_uploads_this_frame = 0;  // reset licznika per klatka
             gl_paint_region(f, clip);
+            // Doładuj kolejkę po głównym renderingu
+            while (!m_upload_queue.isEmpty() &&
+                   m_uploads_this_frame < MAX_UPLOADS_PER_FRAME) {
+                const QString path = m_upload_queue.takeFirst();
+                if (m_gpu.contains(path)) {
+                    auto& ge = m_gpu[path];
+                    for (const auto& item : m_items) {
+                        if (item.file.path == path && !item.thumb.isNull()) {
+                            gpu_upload_thumb(ge, item.thumb);
+                            break;
+                        }
+                    }
+                }
+            }
             m_gl_fbo->release();
 
-            // ── Blit FBO → widget przez QPainter ─────────────────────────
-            // toImage kosztuje ~2ms — zastąp przez drawImage z texture ID
-            // Na razie używamy toImage ale z BGRA (szybszy format na x86)
             QImage img = m_gl_fbo->toImage(true);
             m_gl_ctx->doneCurrent();
             if (!img.isNull()) {
@@ -341,11 +353,18 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
 
     if (item.file.is_dir) {
         p.fillRect(img_rect, QColor(0x22, 0x22, 0x22));
-        QFont f = p.font();
-        f.setPixelSize(qMin(qMin(avail_w, avail_h) * 2/3, 72));
-        p.setFont(f);
-        p.setPen(QColor(0xF0, 0xC0, 0x20));
-        p.drawText(img_rect, Qt::AlignCenter, "📁");
+        // Ikona folderu z zasobu — skaluje się z rozmiarem miniatury
+        static QPixmap s_folder_icon;
+        if (s_folder_icon.isNull())
+            s_folder_icon = QPixmap(":/icons/folder_icon.png");
+        if (!s_folder_icon.isNull()) {
+            int fsz = qMin(avail_w, avail_h) * 85 / 100;
+            QPixmap scaled = s_folder_icon.scaled(fsz, fsz,
+                Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            int fx = img_rect.x() + (avail_w - scaled.width())  / 2;
+            int fy = img_rect.y() + (avail_h - scaled.height()) / 2;
+            p.drawPixmap(fx, fy, scaled);
+        }
     } else if (item.thumb.isNull()) {
         p.fillRect(img_rect, QColor(0x22, 0x22, 0x22));
         p.setPen(QColor(0x44, 0x44, 0x44));
@@ -626,6 +645,7 @@ ThumbnailCanvas::~ThumbnailCanvas() {
     if (m_gl_ctx && m_gl_surf) {
         m_gl_ctx->makeCurrent(m_gl_surf);
         delete m_gl_fbo; m_gl_fbo = nullptr;
+
         gpu_delete_all();
         if (auto* f = gl()) {
             if (m_vao) { f->glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
@@ -666,9 +686,11 @@ uniform sampler2D u_tex;
 uniform vec4  u_color;
 uniform float u_use_tex;
 uniform float u_alpha;
+uniform float u_flip_y;
 out vec4 frag;
 void main() {
-    vec4 c = (u_use_tex > 0.5) ? texture(u_tex, v_uv) : u_color;
+    vec2 uv = (u_flip_y > 0.5) ? vec2(v_uv.x, 1.0 - v_uv.y) : v_uv;
+    vec4 c = (u_use_tex > 0.5) ? texture(u_tex, uv) : u_color;
     c.a *= u_alpha;
     frag = c;
 }
@@ -700,6 +722,7 @@ bool ThumbnailCanvas::init_shader() {
     m_u_color   = m_prog->uniformLocation("u_color");
     m_u_use_tex = m_prog->uniformLocation("u_use_tex");
     m_u_alpha   = m_prog->uniformLocation("u_alpha");
+    m_u_flip_y  = m_prog->uniformLocation("u_flip_y");
     return true;
 }
 
@@ -765,6 +788,7 @@ void ThumbnailCanvas::gl_resize(int w, int h) {
 
 void ThumbnailCanvas::gpu_upload_thumb(GpuEntry& e, const QPixmap& pix) {
     auto* f = gl(); if (!f) return;
+    ++m_uploads_this_frame;
     QImage img = pix.toImage().convertToFormat(QImage::Format_RGBA8888);
     const int w = img.width(), h = img.height();
     if (e.thumb_id && e.thumb_src != pix.size()) {
@@ -812,11 +836,24 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
                p.drawRoundedRect(QRectF(0,0,cw,ch),6,6); }
     // Ikona folderu gdy brak miniatury
     if (item.file.is_dir && item.thumb.isNull()) {
-        QFont ff = p.font();
-        ff.setPixelSize(qMin(qMin(ir.width(), ir.height()) * 2/3, 72));
-        p.setFont(ff);
-        p.setPen(QColor(0xF0, 0xC0, 0x20));
-        p.drawText(ir, Qt::AlignCenter, "📁");  // 📁
+        static QPixmap s_folder_px;
+        if (s_folder_px.isNull())
+            s_folder_px = QPixmap(":/icons/folder_icon.png");
+        if (!s_folder_px.isNull()) {
+            int fsz = qMin(ir.width(), ir.height()) * 85 / 100;
+            QPixmap sc = s_folder_px.scaled(fsz, fsz,
+                Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            int fx = ir.x() + (ir.width()  - sc.width())  / 2;
+            int fy = ir.y() + (ir.height() - sc.height()) / 2;
+            p.drawPixmap(fx, fy, sc);
+        } else {
+            // Fallback jeśli zasób nie załadowany
+            QFont ff = p.font();
+            ff.setPixelSize(qMin(ir.width(), ir.height()) * 2 / 3);
+            p.setFont(ff);
+            p.setPen(QColor(0xF0, 0xC0, 0x20));
+            p.drawText(ir, Qt::AlignCenter, "📁");
+        }
     }
     // Badge
     if (!item.file.is_dir && (item.file.is_raw || item.file.is_psd)) {
@@ -888,15 +925,17 @@ void ThumbnailCanvas::gl_draw_quad_color(GL45* f,
     m_prog->setUniformValue(m_u_use_tex, 0.f);
     m_prog->setUniformValue(m_u_color,   QVector4D(r,g,b,a));
     m_prog->setUniformValue(m_u_alpha,   1.f);
+    m_prog->setUniformValue(m_u_flip_y,  0.f);
     f->glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
 void ThumbnailCanvas::gl_draw_quad_tex(GL45* f,
-    float x, float y, float w, float h, GLuint tex, float alpha) {
+    float x, float y, float w, float h, GLuint tex, float alpha, float flip_y) {
     QMatrix4x4 m; m.translate(x,y); m.scale(w,h);
     m_prog->setUniformValue(m_u_mvp,     m_proj*m);
     m_prog->setUniformValue(m_u_use_tex, 1.f);
     m_prog->setUniformValue(m_u_alpha,   alpha);
+    m_prog->setUniformValue(m_u_flip_y,  flip_y);
     m_prog->setUniformValue("u_tex", 0);
     f->glBindTextureUnit(0, tex);
     f->glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -929,12 +968,18 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
     // Miniatura
     if (!item.thumb.isNull()) {
         auto& e = m_gpu[item.file.path];
-        if (e.thumb_dirty || e.thumb_src!=item.thumb.size())
-            gpu_upload_thumb(e, item.thumb);
+        if (e.thumb_dirty || e.thumb_src!=item.thumb.size()) {
+            // Uploaduj od razu — kolejka tylko gdy przekroczono limit per klatka
+            if (m_uploads_this_frame < MAX_UPLOADS_PER_FRAME)
+                gpu_upload_thumb(e, item.thumb);
+            else
+                m_upload_queue.append(item.file.path);
+        }
         if (e.thumb_id) {
             QSize ts=item.thumb.size().scaled(QSize(aw,ah),Qt::KeepAspectRatio);
             float ox=ix+(aw-ts.width())/2.f, oy=iy+(ah-ts.height())/2.f;
-            gl_draw_quad_tex(f, ox,oy,ts.width(),ts.height(), e.thumb_id);
+            // flip_y=1: QImage Y↓ vs GL tekstura Y↑
+            gl_draw_quad_tex(f, ox,oy,ts.width(),ts.height(), e.thumb_id, 1.f, 0.f);
         }
     }
 
@@ -944,7 +989,7 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
     if (e.overlay_dirty||!e.overlay_id||e.ov_w!=cw||e.ov_h!=ch)
         gpu_render_overlay(item.file.path, e, idx, cw, ch);
     if (e.overlay_id)
-        gl_draw_quad_tex(f, r.x(),r.y(),cw,ch, e.overlay_id);
+        gl_draw_quad_tex(f, r.x(), r.y(), cw, ch, e.overlay_id, 1.f, 0.f);
 }
 
 // ── paintGL — główna pętla renderowania ──────────────────────────────────────

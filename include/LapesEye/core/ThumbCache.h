@@ -1,4 +1,6 @@
 #pragma once
+#include <QVector>
+#include <QByteArray>
 #include <QImage>
 #include <QString>
 #include <QSqlDatabase>
@@ -19,6 +21,7 @@ public:
 
     // Zwraca QImage jeśli w cache i aktualna
     std::optional<QImage> get(const QString& path);
+    void flush();  // zapisz zakolejkowane wpisy na dysk
 
     // Zapisuje QImage do cache (jako PNG blob)
     void put(const QString& path, const QImage& thumb, int orig_w, int orig_h);
@@ -37,6 +40,10 @@ private:
     QString      m_conn_name;
     bool         m_open = false;
     mutable QMutex m_mutex;  // chroni QSqlDatabase przed wielowątkowym dostępem
+    static constexpr int BATCH_SIZE = 32;
+    struct BatchEntry { QString path; qint64 mtime, size, now; QByteArray blob; int orig_w, orig_h, thumb_w; };
+    QVector<BatchEntry> m_batch;
+    void flush_batch_locked();
 };
 
 } // namespace LapesEye

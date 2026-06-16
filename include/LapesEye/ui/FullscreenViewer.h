@@ -49,12 +49,14 @@ private:
     void     navigate(int delta);
     void     load_current();
     void     load_full_resolution();  // etap 2: pełna jakość z korekcją kolorów
-    void     start_fade(const QPixmap& next);  // cross-fade między etapami
+    void     start_fade(const QPixmap& next, float speed = 0.07f);  // cross-fade między etapami
+    void     prefetch_full_neighbors();       // pełna jakość sąsiadów po załadowaniu bieżącego
     void     prefetch_neighbors();  // ładuj sąsiednie zdjęcia w tle
     void     draw_overlay(QPainter& p);
     QSizeF   base_image_size() const;
     QPointF  screen_to_image(const QPointF& screen_pt) const;
     void     zoom_at(double new_zoom, const QPointF& focus_screen);
+    void     clamp_offset();
 
     QStringList   m_paths;
     int           m_index  = 0;
@@ -62,17 +64,24 @@ private:
     QPixmap       m_pixmap_full;      // pełna rozdzielczość — do zoom-in
     QPixmap       m_loading_pixmap;
     bool          m_loading      = false;
-    bool          m_loading_full = false;  // trwa ładowanie pełnej rozdzielczości
+    bool          m_loading_full = false;
+
+    // Cross-fade etap1→etap2
+    QPixmap       m_fade_from;
+    float         m_fade_alpha = 1.f;
+    float         m_fade_speed = 0.07f;
+    QTimer*       m_fade_timer = nullptr;
+    float         m_raw_factor = 1.f;
+    int           m_cached_rotation = 0;  // cache rotacji z load_current — unika MetaStore::load w wątkach
+
+    // Cache pełnej jakości sąsiadów
+    QHash<QString, QPixmap>   m_prefetch_full_cache;
+    QHash<QString, QPixmap>   m_prefetch_full_pix_cache;  // pełna rozdzielczość do zoom-in
+    QSet<QString>              m_prefetch_full_in_flight;
+    int                        m_prefetch_full_gen = 0;
     int           m_load_gen_full = 0;
     QFuture<void> m_future;
     int           m_load_gen  = 0;  // anuluj stare żądania
-
-    float         m_raw_factor = 1.f;  // factor jasności obliczony w etapie 1
-
-    // Cross-fade etap1→etap3
-    QPixmap       m_fade_from;       // obraz z którego fade-out
-    float         m_fade_alpha = 1.f; // 0.0=fade_from, 1.0=m_pixmap
-    QTimer*       m_fade_timer = nullptr;
 
     // Prefetch sąsiednich zdjęć
     QHash<QString, QPixmap> m_prefetch_cache;  // path → gotowy pixmap
