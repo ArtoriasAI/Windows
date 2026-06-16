@@ -497,11 +497,11 @@ void FullscreenViewer::load_current() {
             img = img.transformed(t, Qt::SmoothTransformation);
         }
 
-        QPixmap pix = QPixmap::fromImage(img);
         qDebug() << "[FSV] załadowano:" << QFileInfo(path).fileName()
                  << "rozmiar:" << img.size();
-        QMetaObject::invokeMethod(this, [this, pix, gen, is_raw]() {
+        QMetaObject::invokeMethod(this, [this, img, gen, is_raw]() {
             if (gen != m_load_gen) return;
+            QPixmap pix = QPixmap::fromImage(img);  // GUI thread — bezpieczne
             m_loading = false;
             // Szybki fade JPEG→quarter RAW (~100ms) — zmiana jest subtelna
             start_fade(pix, is_raw ? 0.16f : 0.07f);
@@ -665,21 +665,19 @@ void FullscreenViewer::load_full_resolution() {
             img = img.transformed(t, Qt::SmoothTransformation);
         }
 
-        QPixmap pix_full = QPixmap::fromImage(img);
-
         QSize screen = QGuiApplication::primaryScreen()->size();
         QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
         QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio,
                                    Qt::SmoothTransformation);
         scaled = unsharp_mask(scaled, 1, 0.65f);
-        QPixmap pix = QPixmap::fromImage(scaled);
 
-        QMetaObject::invokeMethod(this, [this, pix, pix_full, gen]() {
+        QMetaObject::invokeMethod(this, [this, img, scaled, gen]() {
             if (gen != m_load_gen_full) return;
+            QPixmap pix_full = QPixmap::fromImage(img);    // GUI thread
+            QPixmap pix      = QPixmap::fromImage(scaled); // GUI thread
             m_pixmap_full  = pix_full;
             m_loading_full = false;
             start_fade(pix, 0.07f);  // płynne cross-fade quarter→full ~250ms
-            // Po załadowaniu pełnej jakości bieżącego — prefetch pełnej jakości sąsiadów
             prefetch_full_neighbors();
         }, Qt::QueuedConnection);
     });
@@ -846,20 +844,18 @@ void FullscreenViewer::prefetch_full_neighbors() {
             // Identyczna kolejność jak load_full_resolution:
             // skalowanie → apply_color_mode → unsharp_mask
             // pix_full — pełna rozdzielczość do zoom-in (identycznie jak load_full_resolution)
-            QPixmap pix_full = QPixmap::fromImage(img);
-
             QSize screen = QGuiApplication::primaryScreen()->size();
             QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
             QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
             scaled = unsharp_mask(scaled, 1, 0.65f);
-            QPixmap pix = QPixmap::fromImage(scaled);
 
-            QMetaObject::invokeMethod(this, [this, path, pix, pix_full]() {
+            QMetaObject::invokeMethod(this, [this, path, img, scaled]() {
+                QPixmap pix_full = QPixmap::fromImage(img);    // GUI thread
+                QPixmap pix      = QPixmap::fromImage(scaled); // GUI thread
                 m_prefetch_full_in_flight.remove(path);
                 int idx = m_paths.indexOf(path);
                 if (idx >= 0 && qAbs(idx - m_index) <= 4)
                     m_prefetch_full_cache[path] = pix;
-                // pix_full zapisz osobno dla zoom-in
                 if (idx >= 0 && qAbs(idx - m_index) <= 4)
                     m_prefetch_full_pix_cache[path] = pix_full;
                 qDebug() << "[FSV] prefetch full:" << QFileInfo(path).fileName();
@@ -953,12 +949,10 @@ void FullscreenViewer::prefetch_neighbors() {
                     img = img.scaled(screen_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 img = unsharp_mask(img, 1, 0.65f);
 
-                QPixmap pix = QPixmap::fromImage(img);
-                QMetaObject::invokeMethod(this, [this, path, pix, pgen]() {
+                QMetaObject::invokeMethod(this, [this, path, img, pgen]() {
+                    QPixmap pix = QPixmap::fromImage(img);  // GUI thread
                     m_prefetch_in_flight.remove(path);
-                    // Odrzuć jeśli show_image() zostało wywołane po starcie wątku
                     if (pgen != m_prefetch_gen) return;
-                    // Zapisz tylko jeśli nadal prawdopodobnie potrzebne
                     int idx = m_paths.indexOf(path);
                     if (idx >= 0 && qAbs(idx - m_index) <= PREFETCH_RANGE)
                         m_prefetch_cache[path] = pix;
