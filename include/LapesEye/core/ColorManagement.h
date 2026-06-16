@@ -16,3 +16,7 @@ QByteArray monitor_icc_profile();
 QColorSpace monitor_color_space();
 
 QImage apply_color_mode(QImage img);
+
+// Wywołaj z wątku głównego (np. po zmianie ustawień) aby zaktualizować cache
+// trybu kolorów używanego przez wątki robocze. Thread-safe.
+void refresh_color_mode_cache();
