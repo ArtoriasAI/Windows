@@ -17,7 +17,10 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
     qputenv("QT_OPENGL", "desktop");
 #else
-    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
+    // Wymuś GLX tylko gdy używamy XCB (X11), nie Wayland
+    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION") &&
+        qEnvironmentVariableIsSet("DISPLAY") &&
+        !qEnvironmentVariableIsSet("WAYLAND_DISPLAY"))
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
 #endif
     // Domyślny format GL dla wszystkich QOpenGLWidget
