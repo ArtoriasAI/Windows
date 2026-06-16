@@ -1,5 +1,8 @@
 #include "LapesEye/core/ColorManagement.h"
 #include <QColorSpace>
+#include <atomic>
+#include <QThread>
+#include <QCoreApplication>
 #include <QSettings>
 #include <QGuiApplication>
 #include <QDebug>
@@ -129,9 +132,26 @@ QColorSpace monitor_color_space() {
 
 // ─── Konwersja per-zdjęcie ────────────────────────────────────────────────────
 
-QImage apply_color_mode(QImage img) {
+void refresh_color_mode_cache() {
+    // Odczytaj tryb z QSettings w wątku głównym i zapisz do atomic cache
+    // Bezpieczne wywołanie z FullscreenViewer przed uruchomieniem QtConcurrent
+    extern std::atomic<int> g_color_mode_cache;
     QSettings s("Lape", "LapesEye");
-    int mode = s.value("color/mode", 1).toInt();
+    g_color_mode_cache.store(s.value("color/mode", 1).toInt());
+}
+
+// Global atomic cache dla color mode (thread-safe)
+std::atomic<int> g_color_mode_cache{-1};
+
+QImage apply_color_mode(QImage img) {
+    // UWAGA: ta funkcja jest wywoływana z wątków roboczych (QtConcurrent)
+    // QSettings NIE jest thread-safe na Windows — używamy atomic cache
+    int mode = g_color_mode_cache.load();
+    if (mode < 0) {
+        // Cache nie załadowany — bezpieczny fallback sRGB
+        // refresh_color_mode_cache() powinien być wywołany z wątku głównego
+        mode = 1;
+    }
     if (mode == 0) return img;  // Brak konwersji
 
     // Profil źródłowy — osadzony w pliku lub sRGB jako default
