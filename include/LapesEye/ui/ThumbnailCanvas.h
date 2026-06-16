@@ -47,7 +47,13 @@ public:
     ~ThumbnailCanvas() override;
 
     void set_items(QVector<ThumbnailCanvasItem> items, int first_idx = 0);
-    void set_total_count(int n) { m_total_count = n; }
+    void set_total_count(int n) {
+#if LEYE_HAS_GL
+        m_total_count = n;
+#else
+        (void)n;
+#endif
+    }
     void set_thumb_size(int size);
     void set_explicit_width(int w) { m_explicit_width = w; }
     void set_selected(const QSet<QString>& selected);
