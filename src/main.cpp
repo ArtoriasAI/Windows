@@ -3,6 +3,7 @@
 #include "LapesEye/ui/ThumbnailGrid.h"
 
 #include <QApplication>
+#include "LapesEye/core/ColorManagement.h"
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QDir>
@@ -30,6 +31,7 @@ int main(int argc, char* argv[]) {
 #endif
     QApplication app(argc, argv);
     app.setApplicationName("Lape's Eye");
+    refresh_color_mode_cache();  // pre-load trybu kolorów dla wątków roboczych
     app.setOrganizationName("Lape");
     app.setApplicationVersion("0.5.8");
     app.setDesktopFileName("lapes-eye");
