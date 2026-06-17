@@ -53,8 +53,10 @@ ExifData MetaStore::read_exif(const QString& path) {
     ExifData out;
     try {
 #ifdef Q_OS_WIN
-        std::string utf8_path = path.toUtf8().toStdString();
-        auto img = Exiv2::ImageFactory::open(utf8_path);
+        // Windows: Exiv2 wymaga std::wstring dla polskich znaków w ścieżce
+        // toUtf8().toStdString() nie działa — Windows używa CP1250 nie UTF-8
+        std::wstring wpath = path.toStdWString();
+        auto img = Exiv2::ImageFactory::open(wpath);
 #else
         auto img = Exiv2::ImageFactory::open(path.toStdString());
 #endif
