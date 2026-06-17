@@ -216,32 +216,38 @@ void FullscreenViewer::clamp_offset() {
 
 // ─── Otwórz viewer ───────────────────────────────────────────────────────────
 void FullscreenViewer::show_image(const QStringList& paths, int index) {
+    qDebug() << "[FSV] show_image START index=" << index << "paths=" << paths.size();
     m_paths  = paths;
     m_index  = qBound(0, index, paths.size() - 1);
     m_zoom   = 1.0;
     m_offset = {0, 0};
     m_is_zoomed = false;
     m_show_overlay = true;
+    qDebug() << "[FSV] overlay_timer start";
     m_overlay_timer->start();
-    // Wyczyść poprzedni pixmap — nie pokazuj starego zdjęcia jako placeholder
-    // przy pierwszym otwarciu fullscreen (spacja po raz drugi)
     m_pixmap         = QPixmap{};
     m_pixmap_full    = QPixmap{};
     m_loading_pixmap = QPixmap{};
-    ++m_load_gen;  // anuluj ewentualne poprzednie żądania
-    ++m_prefetch_gen;  // anuluj stare wątki prefetch
+    ++m_load_gen;
+    ++m_prefetch_gen;
     m_prefetch_cache.clear();
     m_prefetch_full_cache.clear();
-    m_prefetch_full_pix_cache.clear();  // nowy folder — stary full cache nieaktualny
+    m_prefetch_full_pix_cache.clear();
     m_prefetch_full_in_flight.clear();
     ++m_prefetch_full_gen;
     m_prefetch_in_flight.clear();
-    refresh_color_mode_cache();  // thread-safe pre-load przed QtConcurrent
+    qDebug() << "[FSV] refresh_color_mode_cache";
+    refresh_color_mode_cache();
+    qDebug() << "[FSV] load_current";
     load_current();
+    qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
+    qDebug() << "[FSV] showFullScreen";
     showFullScreen();
+    qDebug() << "[FSV] raise+activate";
     raise();
     activateWindow();
+    qDebug() << "[FSV] show_image DONE";
 }
 
 // ─── Nawigacja — zachowuje zoom i offset ────────────────────────────────────
