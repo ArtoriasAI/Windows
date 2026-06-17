@@ -126,16 +126,15 @@ FullscreenViewer::~FullscreenViewer() {
 }
 
 FullscreenViewer::FullscreenViewer(QWidget* parent)
-#ifdef Q_OS_WIN
-    // Windows: parent musi być nullptr dla showFullScreen() z FramelessWindowHint
-    // Z parentem Qt traktuje okno jako child i showFullScreen() crashuje
     : QWidget(nullptr, Qt::Window)
-#else
-    : QWidget(parent, Qt::Window)
-#endif
 {
     Q_UNUSED(parent)
+#ifdef Q_OS_WIN
+    // Windows: FramelessWindowHint bez showFullScreen — używamy setGeometry+show
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+#else
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+#endif
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
     setMouseTracking(true);
@@ -242,16 +241,15 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     load_current();
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-    qDebug() << "[FSV] showFullScreen";
+    qDebug() << "[FSV] show";
 #ifdef Q_OS_WIN
-    // Windows: showFullScreen() z FramelessWindowHint crashuje gdy okno nie było
-    // wcześniej pokazane. Używamy setGeometry + show jako workaround.
-    QScreen* screen = QGuiApplication::primaryScreen();
-    if (screen) {
-        setGeometry(screen->geometry());
-    }
-    setWindowState(Qt::WindowFullScreen);
+    QScreen* scr = QGuiApplication::primaryScreen();
+    QRect geom = scr ? scr->geometry() : QRect(0, 0, 1920, 1080);
+    qDebug() << "[FSV] screen geometry:" << geom;
+    setGeometry(geom);
+    qDebug() << "[FSV] calling show()";
     show();
+    qDebug() << "[FSV] show() returned";
 #else
     showFullScreen();
 #endif
