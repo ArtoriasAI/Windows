@@ -243,7 +243,18 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
     qDebug() << "[FSV] showFullScreen";
+#ifdef Q_OS_WIN
+    // Windows: showFullScreen() z FramelessWindowHint crashuje gdy okno nie było
+    // wcześniej pokazane. Używamy setGeometry + show jako workaround.
+    QScreen* screen = QGuiApplication::primaryScreen();
+    if (screen) {
+        setGeometry(screen->geometry());
+    }
+    setWindowState(Qt::WindowFullScreen);
+    show();
+#else
     showFullScreen();
+#endif
     qDebug() << "[FSV] raise+activate";
     raise();
     activateWindow();
