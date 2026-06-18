@@ -108,7 +108,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_thumb_cache  = std::make_unique<ThumbCache>();
     m_thumb_cache->open();
     m_thumb_worker = std::make_unique<ThumbWorker>(m_thumb_cache.get());
-    // FullscreenViewer tworzony lazy przy pierwszym użyciu
+    m_fullscreen_viewer = new FullscreenViewer(this);
     m_ipc          = std::make_unique<LapeIPC>();
 
     // KOLEJNOŚĆ KRYTYCZNA — toolbar/statusbar przed panelami, panele przed zakładkami
@@ -707,9 +707,6 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
                      this, [this](const QString& msg) { statusBar()->showMessage(msg, 3000); });
     QObject::connect(grid, &ThumbnailGrid::fullscreen_requested, this,
                      [this, grid](const QStringList& paths, int idx) {
-                         if (!m_fullscreen_viewer) {
-                             m_fullscreen_viewer = new FullscreenViewer(nullptr);
-                         }
                          m_fullscreen_viewer->show_image(paths, idx);
                          // Punkt 5: gdy zamykamy fullscreen, zaznacz ostatnie przeglądane zdjęcie
                          // Używamy jednorazowego połączenia przez QMetaObject
