@@ -126,10 +126,8 @@ FullscreenViewer::~FullscreenViewer() {
 }
 
 FullscreenViewer::FullscreenViewer(QWidget* parent)
-    : QWidget(nullptr, Qt::Window)
+    : QWidget(parent, Qt::Window)
 {
-    Q_UNUSED(parent)
-    // Windows: bez FramelessWindowHint — showFullScreen crashuje z nim na dużych monitorach
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
@@ -237,8 +235,10 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     load_current();
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-    qDebug() << "[FSV] showFullScreen calling";
+    qDebug() << "[FSV] showFullScreen";
     showFullScreen();
+    raise();
+    activateWindow();
     qDebug() << "[FSV] show_image DONE";
 }
 
