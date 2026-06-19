@@ -132,16 +132,16 @@ QColorSpace monitor_color_space() {
 
 // ─── Konwersja per-zdjęcie ────────────────────────────────────────────────────
 
+// Global atomic cache dla color mode (thread-safe)
+// MUSI być zdefiniowany przed refresh_color_mode_cache()
+std::atomic<int> g_color_mode_cache{-1};
+
 void refresh_color_mode_cache() {
     // Odczytaj tryb z QSettings w wątku głównym i zapisz do atomic cache
     // Bezpieczne wywołanie z FullscreenViewer przed uruchomieniem QtConcurrent
-    extern std::atomic<int> g_color_mode_cache;
     QSettings s("Lape", "LapesEye");
     g_color_mode_cache.store(s.value("color/mode", 1).toInt());
 }
-
-// Global atomic cache dla color mode (thread-safe)
-std::atomic<int> g_color_mode_cache{-1};
 
 QImage apply_color_mode(QImage img) {
     // UWAGA: ta funkcja jest wywoływana z wątków roboczych (QtConcurrent)
