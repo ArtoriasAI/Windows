@@ -128,11 +128,7 @@ FullscreenViewer::~FullscreenViewer() {
 FullscreenViewer::FullscreenViewer(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
-#ifdef Q_OS_WIN
-    setWindowFlags(Qt::Window);  // bez FramelessWindowHint — test czy to crashuje
-#else
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-#endif
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
     setMouseTracking(true);
@@ -240,6 +236,12 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
     qDebug() << "[FSV] showFullScreen";
+#ifdef Q_OS_WIN
+    // Windows: wymuś stworzenie native HWND przed showFullScreen()
+    // Bez tego SetWindowPos dostaje null HWND i crashuje
+    winId();  // wymusza WM_CREATE i stworzenie HWND
+    qDebug() << "[FSV] winId created";
+#endif
     showFullScreen();
     raise();
     activateWindow();
@@ -336,7 +338,8 @@ void FullscreenViewer::load_current() {
     }
 
     int gen = ++m_load_gen;
-    QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
+    QScreen* _scr = QGuiApplication::primaryScreen();
+    QSize screen_size = (_scr ? _scr->size() : QSize(2560, 1440)) * 2;
 
     m_future = QtConcurrent::run([this, path, screen_size, gen, is_raw]() {
         QImage img;
@@ -667,7 +670,8 @@ void FullscreenViewer::load_full_resolution() {
             img = img.transformed(t, Qt::SmoothTransformation);
         }
 
-        QSize screen = QGuiApplication::primaryScreen()->size();
+        QScreen* _scr2 = QGuiApplication::primaryScreen();
+        QSize screen = _scr2 ? _scr2->size() : QSize(2560, 1440);
         QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
         QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio,
                                    Qt::SmoothTransformation);
@@ -846,7 +850,8 @@ void FullscreenViewer::prefetch_full_neighbors() {
             // Identyczna kolejność jak load_full_resolution:
             // skalowanie → apply_color_mode → unsharp_mask
             // pix_full — pełna rozdzielczość do zoom-in (identycznie jak load_full_resolution)
-            QSize screen = QGuiApplication::primaryScreen()->size();
+            QScreen* _scr2 = QGuiApplication::primaryScreen();
+        QSize screen = _scr2 ? _scr2->size() : QSize(2560, 1440);
             QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
             QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
             scaled = unsharp_mask(scaled, 1, 0.65f);
@@ -881,7 +886,8 @@ void FullscreenViewer::prefetch_neighbors() {
             if (m_prefetch_in_flight.contains(path)) continue;
 
             m_prefetch_in_flight.insert(path);
-            QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
+            QScreen* _scr = QGuiApplication::primaryScreen();
+    QSize screen_size = (_scr ? _scr->size() : QSize(2560, 1440)) * 2;
             int pgen = m_prefetch_gen;
 
             [[maybe_unused]] auto f = QtConcurrent::run([this, path, screen_size, pgen]() {
