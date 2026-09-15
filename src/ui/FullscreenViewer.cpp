@@ -128,7 +128,11 @@ FullscreenViewer::~FullscreenViewer() {
 FullscreenViewer::FullscreenViewer(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
+#ifdef Q_OS_WIN
+    setWindowFlags(Qt::Window);  // bez FramelessWindowHint — test czy to crashuje
+#else
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+#endif
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
     setMouseTracking(true);
