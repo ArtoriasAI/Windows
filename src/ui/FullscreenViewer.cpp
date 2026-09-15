@@ -235,16 +235,17 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     load_current();
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-    qDebug() << "[FSV] showFullScreen";
+    qDebug() << "[FSV] pre-showFullScreen";
 #ifdef Q_OS_WIN
-    // Windows: wymuś stworzenie native HWND przed showFullScreen()
-    // Bez tego SetWindowPos dostaje null HWND i crashuje
-    winId();  // wymusza WM_CREATE i stworzenie HWND
-    qDebug() << "[FSV] winId created";
-#endif
+    qDebug() << "[FSV] winId=" << (void*)winId();
+    qDebug() << "[FSV] isVisible=" << isVisible();
+    qDebug() << "[FSV] windowState=" << windowState();
+    // Zamiast showFullScreen() użyj showNormal() jako test
+    showNormal();
+    qDebug() << "[FSV] showNormal done";
+#else
     showFullScreen();
-    raise();
-    activateWindow();
+#endif
     qDebug() << "[FSV] show_image DONE";
 }
 
