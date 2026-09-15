@@ -235,17 +235,21 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     load_current();
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-    qDebug() << "[FSV] pre-show";
 #ifdef Q_OS_WIN
-    qDebug() << "[FSV] thread check:" << (QThread::currentThread() == QCoreApplication::instance()->thread());
-    qDebug() << "[FSV] parent:" << (void*)parentWidget();
-    qDebug() << "[FSV] calling showFullScreen now";
+    // Windows: showFullScreen() z parentem crashuje na dużych monitorach
+    // Tymczasowo odłącz od parenta, pokaż fullscreen, event loop obsłuży resztę
+    QWidget* saved_parent = parentWidget();
+    if (saved_parent) {
+        setParent(nullptr, Qt::Window | Qt::FramelessWindowHint);
+        setAttribute(Qt::WA_DeleteOnClose, false);
+    }
+    qDebug() << "[FSV] calling showFullScreen (no parent)";
     showFullScreen();
-    qDebug() << "[FSV] showFullScreen returned OK";
+    qDebug() << "[FSV] show_image DONE";
 #else
     showFullScreen();
-#endif
     qDebug() << "[FSV] show_image DONE";
+#endif
 }
 
 // ─── Nawigacja — zachowuje zoom i offset ────────────────────────────────────
