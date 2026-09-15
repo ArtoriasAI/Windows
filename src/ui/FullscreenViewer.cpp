@@ -209,14 +209,12 @@ void FullscreenViewer::clamp_offset() {
 
 // ─── Otwórz viewer ───────────────────────────────────────────────────────────
 void FullscreenViewer::show_image(const QStringList& paths, int index) {
-    qDebug() << "[FSV] show_image START index=" << index << "paths=" << paths.size();
     m_paths  = paths;
     m_index  = qBound(0, index, paths.size() - 1);
     m_zoom   = 1.0;
     m_offset = {0, 0};
     m_is_zoomed = false;
     m_show_overlay = true;
-    qDebug() << "[FSV] overlay_timer start";
     m_overlay_timer->start();
     m_pixmap         = QPixmap{};
     m_pixmap_full    = QPixmap{};
@@ -229,26 +227,13 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     m_prefetch_full_in_flight.clear();
     ++m_prefetch_full_gen;
     m_prefetch_in_flight.clear();
-    qDebug() << "[FSV] refresh_color_mode_cache";
     refresh_color_mode_cache();
-    qDebug() << "[FSV] load_current";
     load_current();
-    qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-#ifdef Q_OS_WIN
-    // Windows: showFullScreen() crashuje — używamy showMaximized() bez ramki
-    // setParent(nullptr) żeby nie być child-window MainWindow
-    if (parentWidget()) {
-        setParent(nullptr);
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    }
-    qDebug() << "[FSV] calling showMaximized";
-    showMaximized();
-    qDebug() << "[FSV] show_image DONE";
-#else
+    qDebug() << "[FSV] showFullScreen";
     showFullScreen();
-    qDebug() << "[FSV] show_image DONE";
-#endif
+    raise();
+    activateWindow();
 }
 
 // ─── Nawigacja — zachowuje zoom i offset ────────────────────────────────────
@@ -341,8 +326,7 @@ void FullscreenViewer::load_current() {
     }
 
     int gen = ++m_load_gen;
-    QScreen* _scr = QGuiApplication::primaryScreen();
-    QSize screen_size = (_scr ? _scr->size() : QSize(2560, 1440)) * 2;
+    QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
 
     m_future = QtConcurrent::run([this, path, screen_size, gen, is_raw]() {
         QImage img;
@@ -673,8 +657,7 @@ void FullscreenViewer::load_full_resolution() {
             img = img.transformed(t, Qt::SmoothTransformation);
         }
 
-        QScreen* _scr2 = QGuiApplication::primaryScreen();
-        QSize screen = _scr2 ? _scr2->size() : QSize(2560, 1440);
+        QSize screen = _screen_lfr;
         QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
         QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio,
                                    Qt::SmoothTransformation);
@@ -719,8 +702,11 @@ void FullscreenViewer::prefetch_full_neighbors() {
         if (m_prefetch_full_in_flight.contains(path)) continue;
 
         m_prefetch_full_in_flight.insert(path);
+        // Pobierz rozmiar ekranu w GUI thread — QGuiApplication nie jest thread-safe
+        QScreen* _pscr = QGuiApplication::primaryScreen();
+        QSize _pscreen_size = _pscr ? _pscr->size() : QSize(2560, 1440);
 
-        [[maybe_unused]] auto f = QtConcurrent::run([this, path, fgen]() {
+        [[maybe_unused]] auto f = QtConcurrent::run([this, path, fgen, _pscreen_size]() {
             // Pełny pipeline identyczny jak load_full_resolution
             std::vector<uint8_t> jpeg_lumas;
             {
@@ -853,8 +839,7 @@ void FullscreenViewer::prefetch_full_neighbors() {
             // Identyczna kolejność jak load_full_resolution:
             // skalowanie → apply_color_mode → unsharp_mask
             // pix_full — pełna rozdzielczość do zoom-in (identycznie jak load_full_resolution)
-            QScreen* _scr2 = QGuiApplication::primaryScreen();
-        QSize screen = _scr2 ? _scr2->size() : QSize(2560, 1440);
+            QSize screen = _pscreen_size;
             QSizeF bs = QSizeF(img.size()).scaled(QSizeF(screen), Qt::KeepAspectRatio);
             QImage scaled = img.scaled(bs.toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
             scaled = unsharp_mask(scaled, 1, 0.65f);
@@ -889,8 +874,7 @@ void FullscreenViewer::prefetch_neighbors() {
             if (m_prefetch_in_flight.contains(path)) continue;
 
             m_prefetch_in_flight.insert(path);
-            QScreen* _scr = QGuiApplication::primaryScreen();
-    QSize screen_size = (_scr ? _scr->size() : QSize(2560, 1440)) * 2;
+            QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
             int pgen = m_prefetch_gen;
 
             [[maybe_unused]] auto f = QtConcurrent::run([this, path, screen_size, pgen]() {
