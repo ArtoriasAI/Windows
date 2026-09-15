@@ -236,15 +236,14 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
 #ifdef Q_OS_WIN
-    // Windows: showFullScreen() z parentem crashuje na dużych monitorach
-    // Tymczasowo odłącz od parenta, pokaż fullscreen, event loop obsłuży resztę
-    QWidget* saved_parent = parentWidget();
-    if (saved_parent) {
-        setParent(nullptr, Qt::Window | Qt::FramelessWindowHint);
-        setAttribute(Qt::WA_DeleteOnClose, false);
+    // Windows: showFullScreen() crashuje — używamy showMaximized() bez ramki
+    // setParent(nullptr) żeby nie być child-window MainWindow
+    if (parentWidget()) {
+        setParent(nullptr);
+        setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     }
-    qDebug() << "[FSV] calling showFullScreen (no parent)";
-    showFullScreen();
+    qDebug() << "[FSV] calling showMaximized";
+    showMaximized();
     qDebug() << "[FSV] show_image DONE";
 #else
     showFullScreen();
