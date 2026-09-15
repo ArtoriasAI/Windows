@@ -15,6 +15,8 @@ int main(int argc, char* argv[]) {
 #if LEYE_HAS_GL
 #ifdef Q_OS_WIN
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+    // DPI awareness — bez tego crash przy show() na monitorach Per-Monitor DPI
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
     qputenv("QT_OPENGL", "desktop");
 #else
     // Wymuś GLX tylko gdy używamy XCB (X11), nie Wayland
