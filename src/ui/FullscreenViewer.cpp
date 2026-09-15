@@ -516,8 +516,10 @@ void FullscreenViewer::load_full_resolution() {
 
     ++m_load_gen_full;
     int gen = m_load_gen_full;
+    QScreen* _scr_lf = QGuiApplication::primaryScreen();
+    QSize _screen_lfr = _scr_lf ? _scr_lf->size() : QSize(2560, 1440);
 
-    [[maybe_unused]] auto future = QtConcurrent::run([this, path, gen]() {
+    [[maybe_unused]] auto future = QtConcurrent::run([this, path, gen, _screen_lfr]() {
 
         // ── Krok 1: Zmierz jasność embedded JPEG ────────────────────────────
         std::vector<uint8_t> jpeg_lumas;
