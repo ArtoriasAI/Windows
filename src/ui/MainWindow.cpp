@@ -109,6 +109,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_thumb_cache->open();
     m_thumb_worker = std::make_unique<ThumbWorker>(m_thumb_cache.get());
     m_fullscreen_viewer = new FullscreenViewer(this);
+#ifdef Q_OS_WIN
+    // Wymuś stworzenie natywnego HWND przy starcie aplikacji
+    // Bez tego pierwsze show() crashuje na Windows
+    m_fullscreen_viewer->setAttribute(Qt::WA_DontShowOnScreen, true);
+    m_fullscreen_viewer->show();
+    m_fullscreen_viewer->hide();
+    m_fullscreen_viewer->setAttribute(Qt::WA_DontShowOnScreen, false);
+#endif
     m_ipc          = std::make_unique<LapeIPC>();
 
     // KOLEJNOŚĆ KRYTYCZNA — toolbar/statusbar przed panelami, panele przed zakładkami
