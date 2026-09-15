@@ -230,10 +230,32 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     refresh_color_mode_cache();
     load_current();
     prefetch_neighbors();
-    qDebug() << "[FSV] showFullScreen";
+#ifdef Q_OS_WIN
+    // showFullScreen() z Qt::Window+FramelessWindowHint crashuje na Windows
+    // Używamy WinAPI bezpośrednio
+    {
+        // Najpierw pokaż okno normalnie żeby stworzyć HWND
+        QScreen* scr = QGuiApplication::primaryScreen();
+        QRect geom = scr ? scr->geometry() : QRect(0,0,1920,1080);
+        // Usuń ramkę przez WinAPI
+        show();
+        HWND hwnd = reinterpret_cast<HWND>(winId());
+        if (hwnd) {
+            // Usuń ramkę i pasek tytułowy
+            SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+            // Rozciągnij na cały ekran
+            SetWindowPos(hwnd, HWND_TOP,
+                geom.x(), geom.y(), geom.width(), geom.height(),
+                SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        }
+        raise();
+        activateWindow();
+    }
+#else
     showFullScreen();
     raise();
     activateWindow();
+#endif
 }
 
 // ─── Nawigacja — zachowuje zoom i offset ────────────────────────────────────
