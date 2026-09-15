@@ -235,14 +235,13 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     load_current();
     qDebug() << "[FSV] prefetch_neighbors";
     prefetch_neighbors();
-    qDebug() << "[FSV] pre-showFullScreen";
+    qDebug() << "[FSV] pre-show";
 #ifdef Q_OS_WIN
-    qDebug() << "[FSV] winId=" << (void*)winId();
-    qDebug() << "[FSV] isVisible=" << isVisible();
-    qDebug() << "[FSV] windowState=" << windowState();
-    // Zamiast showFullScreen() użyj showNormal() jako test
-    showNormal();
-    qDebug() << "[FSV] showNormal done";
+    qDebug() << "[FSV] thread check:" << (QThread::currentThread() == QCoreApplication::instance()->thread());
+    qDebug() << "[FSV] parent:" << (void*)parentWidget();
+    qDebug() << "[FSV] calling showFullScreen now";
+    showFullScreen();
+    qDebug() << "[FSV] showFullScreen returned OK";
 #else
     showFullScreen();
 #endif
