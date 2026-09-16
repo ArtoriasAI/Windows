@@ -1,18 +1,19 @@
 #ifdef _WIN32
 #include <windows.h>
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
-    for (const char* path : {"C:\\lape_crash.txt", "D:\\lape_crash.txt"}) {
-        HANDLE h = CreateFileA(path, GENERIC_WRITE, 0, nullptr,
-            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h != INVALID_HANDLE_VALUE) {
-            char buf[256];
-            wsprintfA(buf, "CRASH! Code=0x%08X Addr=0x%p\r\n",
-                ep->ExceptionRecord->ExceptionCode,
-                ep->ExceptionRecord->ExceptionAddress);
-            DWORD w; WriteFile(h, buf, (DWORD)strlen(buf), &w, nullptr);
-            CloseHandle(h);
-            break;
-        }
+    char buf[256];
+    wsprintfA(buf, "CRASH! Code=0x%08X Addr=0x%p\r\n",
+        ep->ExceptionRecord->ExceptionCode,
+        ep->ExceptionRecord->ExceptionAddress);
+    DWORD w;
+    HANDLE h = CreateFileA("D:\\lape_crash.txt", GENERIC_WRITE, 0,
+        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        h = CreateFileA("C:\\Users\\Public\\lape_crash.txt", GENERIC_WRITE, 0,
+            nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        WriteFile(h, buf, (DWORD)lstrlenA(buf), &w, nullptr);
+        CloseHandle(h);
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
