@@ -209,6 +209,7 @@ void FullscreenViewer::clamp_offset() {
 
 // ─── Otwórz viewer ───────────────────────────────────────────────────────────
 void FullscreenViewer::show_image(const QStringList& paths, int index) {
+    qDebug() << "[FSV] show_image" << index << paths.size();
     m_paths  = paths;
     m_index  = qBound(0, index, paths.size() - 1);
     m_zoom   = 1.0;
