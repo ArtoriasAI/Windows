@@ -479,7 +479,11 @@ void FullscreenViewer::load_current() {
 
         img = unsharp_mask(img, 1, 0.65f);
 
+#ifdef Q_OS_WIN
+        int rotation = 0;  // debug: wyłączone na Windows
+#else
         int rotation = MetaStore::load(path).rotation;
+#endif
         // Cache rotacji dla load_full_resolution — unikamy ponownego odczytu JSON
         QMetaObject::invokeMethod(this, [this, rotation]() {
             m_cached_rotation = rotation;
@@ -832,7 +836,11 @@ void FullscreenViewer::prefetch_full_neighbors() {
             img = apply_color_mode(img);
 
             // Prefetch: odczyt rotacji konieczny (inne zdjęcie niż bieżące)
-            int rotation = MetaStore::load(path).rotation;
+    #ifdef Q_OS_WIN
+        int rotation = 0;  // debug: wyłączone na Windows
+#else
+        int rotation = MetaStore::load(path).rotation;
+#endif
             if (rotation != 0) {
                 QTransform t; t.rotate(rotation);
                 img = img.transformed(t, Qt::SmoothTransformation);
@@ -935,7 +943,11 @@ void FullscreenViewer::prefetch_neighbors() {
 
                 img = apply_color_mode(img);
 
-                int rotation = MetaStore::load(path).rotation;
+        #ifdef Q_OS_WIN
+        int rotation = 0;  // debug: wyłączone na Windows
+#else
+        int rotation = MetaStore::load(path).rotation;
+#endif
                 if (rotation != 0) {
                     QTransform t; t.rotate(rotation);
                     img = img.transformed(t, Qt::SmoothTransformation);
