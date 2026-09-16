@@ -1,6 +1,7 @@
 #include "LapesEye/core/MetaStore.h"
 
 #include <QFile>
+#include <QMutex>
 #include <QFileInfo>
 #include <QDir>
 #include <QJsonDocument>
@@ -49,8 +50,10 @@ QString MetaStore::pick_flag_name(PickFlag f) {
 
 // ─── EXIF (libexiv2) ─────────────────────────────────────────────────────────
 
+static QMutex exiv2_mutex;  // Exiv2 nie jest thread-safe
 ExifData MetaStore::read_exif(const QString& path) {
     ExifData out;
+    QMutexLocker exiv2_lock(&exiv2_mutex);  // serialize Exiv2 calls
     try {
 #ifdef Q_OS_WIN
         // Windows: Exiv2::ImageFactory::open przyjmuje std::string
@@ -60,10 +63,13 @@ ExifData MetaStore::read_exif(const QString& path) {
         if (!qf.open(QIODevice::ReadOnly)) return out;
         QByteArray filedata = qf.readAll();
         qf.close();
+        if (filedata.isEmpty()) return out;
+        // WAŻNE: filedata musi żyć dłużej niż img (MemIo trzyma surowy wskaźnik)
         auto memio = std::make_unique<Exiv2::MemIo>(
             reinterpret_cast<const Exiv2::byte*>(filedata.constData()),
             static_cast<long>(filedata.size()));
         auto img = Exiv2::ImageFactory::open(std::move(memio));
+        // filedata pozostaje w scope — bezpieczne
 #else
         auto img = Exiv2::ImageFactory::open(path.toStdString());
 #endif
@@ -165,6 +171,7 @@ static QString catalog_base_dir() {
 }
 
 QString MetaStore::catalog_path(const QString& file_path) {
+    static QMutex mkpath_mutex;
     QString folder = QFileInfo(file_path).dir().absolutePath();
     // Hashuj ścieżkę folderu — unikalna nazwa pliku JSON per folder
     quint32 hash = qHash(folder);
@@ -176,7 +183,7 @@ QString MetaStore::catalog_path(const QString& file_path) {
     dir_name = dir_name.left(30);  // max 30 znaków
     QString filename = QString("%1_%2.json").arg(hash_str, dir_name);
     QString dir = catalog_base_dir();
-    QDir().mkpath(dir);  // utwórz katalog jeśli nie istnieje
+    { QMutexLocker lk(&mkpath_mutex); QDir().mkpath(dir); }  // thread-safe mkpath
     return dir + "/" + filename;
 }
 
