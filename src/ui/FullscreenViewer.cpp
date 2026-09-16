@@ -1,4 +1,12 @@
 #include "LapesEye/ui/FullscreenViewer.h"
+
+#include <QFile>
+#include <QTextStream>
+static void fsv_log(const char* msg) {
+    QFile f("C:/fsv_debug.txt");
+    f.open(QIODevice::Append | QIODevice::Text);
+    QTextStream(&f) << msg << "\n";
+}
 #include <algorithm>
 #include <vector>
 #if LEYE_HAS_GL
