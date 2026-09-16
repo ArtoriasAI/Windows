@@ -160,7 +160,10 @@ else()
     message(STATUS "  GPU:          niedostępny (fallback QPainter)")
 endif()
 
-if(NOT WIN32)
+if(WIN32)
+    # Zwiększ rozmiar stosu do 8MB (domyślnie 1MB) — zapobiega stack overflow
+    target_link_options(lapes-eye PRIVATE /STACK:8388608)
+else()
     target_link_options(lapes-eye PRIVATE -rdynamic)
 endif()
 
