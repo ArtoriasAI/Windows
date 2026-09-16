@@ -12,6 +12,9 @@
 #include <QTimer>
 
 int main(int argc, char* argv[]) {
+#ifdef Q_OS_WIN
+    SetUnhandledExceptionFilter(crash_handler);
+#endif
 #if LEYE_HAS_GL
 #ifdef Q_OS_WIN
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
