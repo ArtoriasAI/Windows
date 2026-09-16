@@ -64,12 +64,15 @@ ExifData MetaStore::read_exif(const QString& path) {
         QByteArray filedata = qf.readAll();
         qf.close();
         if (filedata.isEmpty()) return out;
-        // WAŻNE: filedata musi żyć dłużej niż img (MemIo trzyma surowy wskaźnik)
-        auto memio = std::make_unique<Exiv2::MemIo>(
+        // WAŻNE: detach() zapobiega CoW — constData() nie zmieni adresu
+        filedata.detach();
+        // Kopiuj dane do std::vector żeby mieć stabilny wskaźnik niezależny od QByteArray
+        std::vector<Exiv2::byte> exiv_data(
             reinterpret_cast<const Exiv2::byte*>(filedata.constData()),
-            static_cast<long>(filedata.size()));
+            reinterpret_cast<const Exiv2::byte*>(filedata.constData()) + filedata.size());
+        auto memio = std::make_unique<Exiv2::MemIo>(exiv_data.data(), static_cast<long>(exiv_data.size()));
         auto img = Exiv2::ImageFactory::open(std::move(memio));
-        // filedata pozostaje w scope — bezpieczne
+        // exiv_data żyje w scope — stabilny wskaźnik
 #else
         auto img = Exiv2::ImageFactory::open(path.toStdString());
 #endif
