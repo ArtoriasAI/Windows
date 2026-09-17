@@ -1068,6 +1068,28 @@ void FullscreenViewer::keyPressEvent(QKeyEvent* e) {
         case Qt::Key_Right: case Qt::Key_Down: navigate(+1); return;
         case Qt::Key_Space: case Qt::Key_Escape:
             hide(); emit closed(); return;
+        case Qt::Key_Z:
+            // Wybrane (Pick) — toggle
+            if (!m_paths.isEmpty() && m_index >= 0 && m_index < m_paths.size()) {
+                QString path = m_paths[m_index];
+                FileMetadata meta = MetaStore::load(path);
+                PickFlag newFlag = (meta.pick_flag == PickFlag::Pick)
+                                   ? PickFlag::None : PickFlag::Pick;
+                emit flag_requested(path, newFlag);
+                update();
+            }
+            return;
+        case Qt::Key_X:
+            // Odrzucone (Reject) — toggle
+            if (!m_paths.isEmpty() && m_index >= 0 && m_index < m_paths.size()) {
+                QString path = m_paths[m_index];
+                FileMetadata meta = MetaStore::load(path);
+                PickFlag newFlag = (meta.pick_flag == PickFlag::Reject)
+                                   ? PickFlag::None : PickFlag::Reject;
+                emit flag_requested(path, newFlag);
+                update();
+            }
+            return;
         case Qt::Key_0:
             m_zoom = 1.0; m_offset = {0,0}; m_is_zoomed = false; break;
         case Qt::Key_Plus: case Qt::Key_Equal:
