@@ -13,7 +13,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QStringList>
-#include "LapesEye/core/FileScanner.h"
+#include "LapesEye/core/MetaStore.h"
 #include <QPixmap>
 #include <QTimer>
 #include <QTime>
