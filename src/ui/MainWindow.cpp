@@ -109,6 +109,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_thumb_cache->open();
     m_thumb_worker = std::make_unique<ThumbWorker>(m_thumb_cache.get());
     m_fullscreen_viewer = new FullscreenViewer(this);
+    // Z/X w fullscreen — przekaż do MetaPanel który zapisze i odświeży grid
+    QObject::connect(m_fullscreen_viewer, &FullscreenViewer::flag_requested,
+                     this, [this](const QString& path, PickFlag flag) {
+        if (m_meta_panel) m_meta_panel->set_flag_for_path(path, flag);
+    });
     m_ipc          = std::make_unique<LapeIPC>();
 
     // KOLEJNOŚĆ KRYTYCZNA — toolbar/statusbar przed panelami, panele przed zakładkami
