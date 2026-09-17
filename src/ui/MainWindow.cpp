@@ -707,11 +707,6 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
                      this, [this](const QString& msg) { statusBar()->showMessage(msg, 3000); });
     QObject::connect(grid, &ThumbnailGrid::fullscreen_requested, this,
                      [this, grid](const QStringList& paths, int idx) {
-                         if (!m_fullscreen_viewer) {
-                             qWarning() << "CRASH: m_fullscreen_viewer is null!";
-                             return;
-                         }
-                         qDebug() << "[MW] calling show_image, ptr=" << (void*)m_fullscreen_viewer;
                          m_fullscreen_viewer->show_image(paths, idx);
                          // Punkt 5: gdy zamykamy fullscreen, zaznacz ostatnie przeglądane zdjęcie
                          // Używamy jednorazowego połączenia przez QMetaObject
