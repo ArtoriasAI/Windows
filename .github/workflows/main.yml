@@ -86,7 +86,7 @@ jobs:
       - name: Build installer
         run: |
           makensis /V2 ^
-            /DAPP_VERSION="0.5.0" ^
+            /DAPP_VERSION="0.5.8" ^
             /DDEPLOY_DIR="%CD%\deploy" ^
             installer\lapes-eye-installer.nsi
         shell: cmd
