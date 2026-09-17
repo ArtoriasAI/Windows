@@ -1,19 +1,5 @@
 #include "LapesEye/ui/FullscreenViewer.h"
 
-#include <QFile>
-#include <QTextStream>
-static void fsv_log(const char* msg) {
-    // Próbuj różne lokalizacje
-    for (const char* path : {"C:/fsv_debug.txt", "D:/fsv_debug.txt", "C:/Users/Public/fsv_debug.txt"}) {
-        QFile f(path);
-        if (f.open(QIODevice::Append | QIODevice::Text)) {
-            QTextStream(&f) << msg << "\n";
-            return;
-        }
-    }
-    // Fallback: qDebug
-    qDebug() << msg;
-}
 #include <algorithm>
 #include <vector>
 #if LEYE_HAS_GL
@@ -125,7 +111,6 @@ static QImage unsharp_mask(const QImage& src, int radius = 1, float strength = 0
 }
 
 FullscreenViewer::~FullscreenViewer() {
-    fsv_log("[FSV] DESTRUCTOR called - object being destroyed!");
 #if LEYE_HAS_GL
     if (m_gl_ctx && m_gl_surf) {
         m_gl_ctx->makeCurrent(m_gl_surf);
@@ -144,7 +129,6 @@ FullscreenViewer::~FullscreenViewer() {
 FullscreenViewer::FullscreenViewer(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
-    fsv_log("[FSV] constructor called");
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
@@ -226,7 +210,6 @@ void FullscreenViewer::clamp_offset() {
 
 // ─── Otwórz viewer ───────────────────────────────────────────────────────────
 void FullscreenViewer::show_image(const QStringList& paths, int index) {
-    fsv_log("[FSV] show_image start");
     m_paths  = paths;
     m_index  = qBound(0, index, paths.size() - 1);
     m_zoom   = 1.0;
