@@ -171,6 +171,20 @@ void MetaPanel::set_flag(PickFlag flag) {
     emit flag_changed(m_current_path);
 }
 
+void MetaPanel::set_flag_for_path(const QString& path, PickFlag flag) {
+    // Ustawiamy flagę dla konkretnej ścieżki (np. z fullscreen Z/X)
+    FileMetadata meta = MetaStore::load(path);
+    meta.pick_flag = flag;
+    MetaStore::save(meta);
+    // Jeśli to aktualnie wyświetlane zdjęcie — odśwież UI
+    if (path == m_current_path) {
+        m_current_flag = flag;
+        m_btn_pick->setChecked(flag == PickFlag::Pick);
+        m_btn_reject->setChecked(flag == PickFlag::Reject);
+    }
+    emit flag_changed(path);
+}
+
 // ─── Event filter ────────────────────────────────────────────────────────────
 
 bool MetaPanel::eventFilter(QObject* obj, QEvent* event) {
