@@ -389,6 +389,21 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
         p.drawRoundedRect(QRectF(img_rect).adjusted(1,1,-1,-1), 4, 4);
     }
 
+    // ── Pick/Reject obwódka ───────────────────────────────────────────────────
+    if (item.meta_loaded) {
+        if (item.meta.pick_flag == PickFlag::Pick) {
+            // Zielona obwódka — zdjęcie wybrane (Z)
+            p.setPen(QPen(QColor(0x2E, 0xCC, 0x71), 3));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(r).adjusted(1.5, 1.5, -1.5, -1.5), 6, 6);
+        } else if (item.meta.pick_flag == PickFlag::Reject) {
+            // Czerwona obwódka — zdjęcie odrzucone (X)
+            p.setPen(QPen(QColor(0xE7, 0x4C, 0x3C), 3));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(r).adjusted(1.5, 1.5, -1.5, -1.5), 6, 6);
+        }
+    }
+
     // ── Badges RAW/PSD ────────────────────────────────────────────────────────
     if (item.file.is_raw)      draw_badge(p, img_rect, "RAW", QColor(0xE5, 0x89, 0x20));
     else if (item.file.is_psd) draw_badge(p, img_rect, "PSD", QColor(0x20, 0x6E, 0xE5));
