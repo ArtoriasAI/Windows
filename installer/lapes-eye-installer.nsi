@@ -2,7 +2,7 @@
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "0.5.7.5"
+  !define APP_VERSION "0.5.8"
 !endif
 !ifndef DEPLOY_DIR
   !define DEPLOY_DIR "..\deploy"
