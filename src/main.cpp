@@ -1,24 +1,3 @@
-#ifdef _WIN32
-#include <windows.h>
-static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
-    char buf[256];
-    wsprintfA(buf, "CRASH! Code=0x%08X Addr=0x%p\r\n",
-        ep->ExceptionRecord->ExceptionCode,
-        ep->ExceptionRecord->ExceptionAddress);
-    DWORD w;
-    HANDLE h = CreateFileA("D:\\lape_crash.txt", GENERIC_WRITE, 0,
-        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
-        h = CreateFileA("C:\\Users\\Public\\lape_crash.txt", GENERIC_WRITE, 0,
-            nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h != INVALID_HANDLE_VALUE) {
-        WriteFile(h, buf, (DWORD)lstrlenA(buf), &w, nullptr);
-        CloseHandle(h);
-    }
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-#endif
-
 #include "LapesEye/ui/MainWindow.h"
 #include "LapesEye/ui/FolderPanel.h"
 #include "LapesEye/ui/ThumbnailGrid.h"
@@ -33,9 +12,6 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
 #include <QTimer>
 
 int main(int argc, char* argv[]) {
-#ifdef _WIN32
-    SetUnhandledExceptionFilter(crash_handler);
-#endif
 #if LEYE_HAS_GL
 #ifdef Q_OS_WIN
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
