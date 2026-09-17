@@ -13,6 +13,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QStringList>
+#include "LapesEye/core/FileScanner.h"
 #include <QPixmap>
 #include <QTimer>
 #include <QTime>
@@ -34,6 +35,7 @@ public:
 signals:
     void closed();
     void index_changed(int index);  // emitowany przy nawigacji (punkt 5)
+    void flag_requested(const QString& path, PickFlag flag);  // Z/X w fullscreen
 
 protected:
     void keyPressEvent(QKeyEvent* e) override;
