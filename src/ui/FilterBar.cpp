@@ -50,8 +50,10 @@ void FilterBar::setup_ui() {
     // ── Format ────────────────────────────────────────────────────────────────
     m_raw_only = make_btn("RAW", "Pokaż tylko pliki RAW");
     m_psd_only = make_btn("PSD", "Pokaż tylko pliki PSD");
+    m_jpg_only = make_btn("JPG", "Pokaż tylko pliki JPG/JPEG");
     layout->addWidget(m_raw_only);
     layout->addWidget(m_psd_only);
+    layout->addWidget(m_jpg_only);
 
     layout->addStretch();
 
@@ -194,6 +196,7 @@ void FilterBar::setup_ui() {
 
     QObject::connect(m_raw_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
     QObject::connect(m_psd_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
+    QObject::connect(m_jpg_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
     QObject::connect(m_search,   &QLineEdit::textChanged, this, [this](const QString&) { emit_filter(); });
 
     // Sortowanie
@@ -252,6 +255,7 @@ void FilterBar::emit_filter() {
 
     f.only_raw      = m_raw_only->isChecked();
     f.only_psd      = m_psd_only->isChecked();
+    f.only_jpg      = m_jpg_only->isChecked();
     f.name_contains = m_search->text().trimmed();
     f.sort_mode     = m_sort_combo
                       ? static_cast<SortMode>(m_sort_combo->currentIndex())
