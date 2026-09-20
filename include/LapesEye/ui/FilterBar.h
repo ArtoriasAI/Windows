@@ -36,6 +36,7 @@ private:
     QToolButton* m_reject_only = nullptr;
     QToolButton* m_raw_only    = nullptr;
     QToolButton* m_psd_only    = nullptr;
+    QToolButton* m_jpg_only    = nullptr;
     QToolButton* m_rotate_ccw  = nullptr;
     QToolButton* m_rotate_cw   = nullptr;
     QSlider*     m_thumb_slider= nullptr;
