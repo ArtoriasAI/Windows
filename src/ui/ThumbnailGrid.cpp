@@ -2322,12 +2322,40 @@ void ThumbnailGrid::remove_items_in_place(const QStringList& paths) {
 }
 
 void ThumbnailGrid::apply_batch_rename(const QList<QPair<QString,QString>>& pairs) {
+    // Dwuetapowe rename zapobiega konfliktom gdy nowe nazwy pokrywają się ze starymi
+    // Etap 1: rename wszystkich do tymczasowych nazw (UUID suffix)
+    // Etap 2: rename z tymczasowych do docelowych
+    // Dzięki temu ponowne uruchomienie rename na tych samych plikach działa poprawnie
+
     blockSignals(true);
-    for (const auto& p : pairs) rename_item(p.first, p.second);
+
+    // Buduj mapę tymczasowych ścieżek
+    QList<QPair<QString,QString>> temp_pairs;  // {old_path, temp_name}
+    QList<QPair<QString,QString>> final_pairs; // {temp_path, final_name}
+
+    QString tmp_suffix = QString(".__lape_tmp_%1__")
+                         .arg(QDateTime::currentMSecsSinceEpoch());
+
+    for (const auto& p : pairs) {
+        QFileInfo fi(p.first);
+        QString tmp_name = fi.baseName() + tmp_suffix + "." + fi.suffix();
+        QString tmp_path = fi.dir().filePath(tmp_name);
+        temp_pairs.append({p.first, tmp_name});
+        final_pairs.append({tmp_path, p.second});
+    }
+
+    // Etap 1: → tymczasowe nazwy
+    for (const auto& p : temp_pairs)
+        rename_item(p.first, p.second);
+
+    // Etap 2: → docelowe nazwy
+    for (const auto& p : final_pairs)
+        rename_item(p.first, p.second);
+
     blockSignals(false);
     virt_full_rebuild();
     emit selection_changed(selected_paths());
-    if (!m_primary.isEmpty()) emit primary_changed(m_primary); // L__LINE__
+    if (!m_primary.isEmpty()) emit primary_changed(m_primary);
 }
 
 void ThumbnailGrid::reapply_filter() {
