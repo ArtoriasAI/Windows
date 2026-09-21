@@ -253,6 +253,54 @@ void FullscreenViewer::navigate(int delta) {
 }
 
 // ─── Ładowanie obrazu w tle ─────────────────────────────────────────────────
+
+// ─── PSD: wyciągnij embedded JPEG z zasobów Photoshopa ──────────────────────
+static QImage load_psd_image(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QByteArray header = f.read(26);
+    if (header.size() < 26 || header.left(4) != "8BPS") return {};
+    f.seek(26);
+    QByteArray cmLen4 = f.read(4);
+    if (cmLen4.size() < 4) return {};
+    quint32 cmLen = (quint8(cmLen4[0])<<24)|(quint8(cmLen4[1])<<16)|(quint8(cmLen4[2])<<8)|quint8(cmLen4[3]);
+    f.seek(26 + 4 + cmLen);
+    QByteArray irLen4 = f.read(4);
+    if (irLen4.size() < 4) return {};
+    quint32 irLen = (quint8(irLen4[0])<<24)|(quint8(irLen4[1])<<16)|(quint8(irLen4[2])<<8)|quint8(irLen4[3]);
+    qint64 irEnd = f.pos() + irLen;
+    while (f.pos() < irEnd) {
+        if (f.read(4).size() < 4) break;
+        QByteArray id2 = f.read(2);
+        if (id2.size() < 2) break;
+        quint16 resId = (quint8(id2[0])<<8)|quint8(id2[1]);
+        quint8 nameLen = 0;
+        f.read(reinterpret_cast<char*>(&nameLen), 1);
+        f.seek(f.pos() + (nameLen % 2 == 0 ? nameLen + 1 : nameLen));
+        QByteArray rs4 = f.read(4);
+        if (rs4.size() < 4) break;
+        quint32 resSize = (quint8(rs4[0])<<24)|(quint8(rs4[1])<<16)|(quint8(rs4[2])<<8)|quint8(rs4[3]);
+        if (resId == 0x040C) {
+            QByteArray th = f.read(28);
+            if (th.size() >= 28) {
+                quint32 fmt      = (quint8(th[0])<<24)|(quint8(th[1])<<16)|(quint8(th[2])<<8)|quint8(th[3]);
+                quint32 dataSize = (quint8(th[20])<<24)|(quint8(th[21])<<16)|(quint8(th[22])<<8)|quint8(th[23]);
+                if (fmt == 1 && dataSize > 0 && dataSize < 50*1024*1024) {
+                    QByteArray jpegData = f.read(dataSize);
+                    QBuffer buf(&jpegData);
+                    buf.open(QIODevice::ReadOnly);
+                    QImageReader reader(&buf, "JPEG");
+                    reader.setAutoTransform(true);
+                    return reader.read();
+                }
+            }
+            break;
+        }
+        f.seek(f.pos() + resSize + (resSize % 2));
+    }
+    return {};
+}
+
 void FullscreenViewer::load_current() {
     if (m_paths.isEmpty()) return;
 
@@ -463,9 +511,21 @@ void FullscreenViewer::load_current() {
 
         // Non-RAW fallback
         if (img.isNull()) {
-            QImageReader reader(path);
-            reader.setAutoTransform(true);
-            img = reader.read();
+            QString ext = QFileInfo(path).suffix().toLower();
+            if (ext == "psd" || ext == "psb") {
+                // PSD: wyciągnij embedded JPEG z zasobów Photoshopa
+                img = load_psd_image(path);
+                // Fallback: QImageReader (wolniejsze, może nie działać)
+                if (img.isNull()) {
+                    QImageReader reader(path);
+                    reader.setAutoTransform(true);
+                    img = reader.read();
+                }
+            } else {
+                QImageReader reader(path);
+                reader.setAutoTransform(true);
+                img = reader.read();
+            }
         }
 
         if (img.isNull()) return;
