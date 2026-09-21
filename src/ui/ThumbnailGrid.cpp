@@ -2393,7 +2393,7 @@ void ThumbnailGrid::start_drag_selected() {
     }
 
     QList<QUrl> urls;
-    for (const auto& path : m_selected) urls << QUrl::fromLocalFile(path);
+    for (const QString& path : selected_paths_ordered()) urls << QUrl::fromLocalFile(path);
     auto* mime = new QMimeData();
     mime->setUrls(urls);
     QPixmap icon(48, 48);
