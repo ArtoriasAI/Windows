@@ -255,7 +255,8 @@ void FullscreenViewer::navigate(int delta) {
 // ─── Ładowanie obrazu w tle ─────────────────────────────────────────────────
 
 // ─── PSD: wyciągnij embedded JPEG z zasobów Photoshopa ──────────────────────
-static QImage load_psd_image(const QString& path) {
+// Szuka resource 0x040C (thumbnail JPEG) lub 0x0409 (JPEG composite)
+static QImage load_psd_jpeg_resource(const QString& path, quint16 target_res_id) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return {};
     QByteArray header = f.read(26);
@@ -513,14 +514,17 @@ void FullscreenViewer::load_current() {
         if (img.isNull()) {
             QString ext = QFileInfo(path).suffix().toLower();
             if (ext == "psd" || ext == "psb") {
-                // PSD: wyciągnij embedded JPEG z zasobów Photoshopa
-                img = load_psd_image(path);
-                // Fallback: QImageReader (wolniejsze, może nie działać)
-                if (img.isNull()) {
-                    QImageReader reader(path);
-                    reader.setAutoTransform(true);
-                    img = reader.read();
-                }
+                // PSD: próbuj w kolejności od najlepszej jakości
+                // 1. Qt plugin (pełna rozdzielczość, może nie działać)
+                QImageReader reader(path);
+                reader.setAutoTransform(true);
+                img = reader.read();
+                // 2. JPEG composite resource 0x0409 (wysoka jakość, Save As JPEG w PS)
+                if (img.isNull())
+                    img = load_psd_jpeg_resource(path, 0x0409);
+                // 3. Thumbnail resource 0x040C (niska rozdzielczość, zawsze dostępny)
+                if (img.isNull())
+                    img = load_psd_jpeg_resource(path, 0x040C);
             } else {
                 QImageReader reader(path);
                 reader.setAutoTransform(true);
