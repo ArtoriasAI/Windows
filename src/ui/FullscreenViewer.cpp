@@ -255,8 +255,135 @@ void FullscreenViewer::navigate(int delta) {
 // ─── Ładowanie obrazu w tle ─────────────────────────────────────────────────
 
 // ─── PSD: wyciągnij embedded JPEG z zasobów Photoshopa ──────────────────────
-// Szuka resource 0x040C (thumbnail JPEG) lub 0x0409 (JPEG composite)
+// ─── PSD: pełne parsowanie composite image data ─────────────────────────────
+// Photoshop zapisuje spłaszczony composite po sekcji layer info
+// Format: 2 bajty kompresja (0=raw,1=RLE/PackBits,2=ZIP), potem dane kanałów
+
+static inline quint32 psd_u32(const QByteArray& d, int off) {
+    return (quint8(d[off])<<24)|(quint8(d[off+1])<<16)|(quint8(d[off+2])<<8)|quint8(d[off+3]);
+}
+static inline quint16 psd_u16(const QByteArray& d, int off) {
+    return (quint8(d[off])<<8)|quint8(d[off+1]);
+}
+
+static QImage load_psd_composite(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QByteArray hdr = f.read(26);
+    if (hdr.size() < 26 || hdr.left(4) != "8BPS") return {};
+
+    int version   = psd_u16(hdr, 4);   // 1=PSD, 2=PSB
+    int channels  = psd_u16(hdr, 12);
+    int height    = psd_u32(hdr, 14);
+    int width     = psd_u32(hdr, 18);
+    int depth     = psd_u16(hdr, 22);  // bits per channel
+
+    if (depth != 8 && depth != 16) return {};  // obsługujemy 8 i 16 bit
+    if (width <= 0 || height <= 0 || width > 30000 || height > 30000) return {};
+    if (channels < 3) return {};
+
+    bool is_psb = (version == 2);
+
+    // Pomiń color mode
+    QByteArray cm4 = f.read(4);
+    if (cm4.size() < 4) return {};
+    f.seek(f.pos() + psd_u32(cm4, 0));
+
+    // Pomiń image resources
+    QByteArray ir4 = f.read(4);
+    if (ir4.size() < 4) return {};
+    f.seek(f.pos() + psd_u32(ir4, 0));
+
+    // Pomiń layer and mask info
+    QByteArray li_sz = f.read(is_psb ? 8 : 4);
+    if (li_sz.size() < (is_psb ? 8 : 4)) return {};
+    qint64 li_len = is_psb
+        ? (((qint64)psd_u32(li_sz,0)<<32)|psd_u32(li_sz,4))
+        : psd_u32(li_sz, 0);
+    f.seek(f.pos() + li_len);
+
+    // Image Data section
+    QByteArray comp2 = f.read(2);
+    if (comp2.size() < 2) return {};
+    quint16 compression = psd_u16(comp2, 0);
+
+    int n_ch = qMin(channels, 4);  // max 4 kanały (RGBA)
+    int row_bytes = width * (depth / 8);
+    qint64 total_pixels = (qint64)width * height;
+
+    // Odczytaj dane dla każdego kanału
+    QVector<QByteArray> ch_data(n_ch);
+
+    if (compression == 0) {
+        // Raw — brak kompresji
+        for (int ch = 0; ch < n_ch; ++ch) {
+            ch_data[ch] = f.read((qint64)row_bytes * height);
+            if (ch_data[ch].size() < row_bytes * height) return {};
+        }
+    } else if (compression == 1) {
+        // RLE PackBits — skip row byte counts table first
+        int row_count_size = height * n_ch * (is_psb ? 4 : 2);
+        QByteArray row_counts = f.read(row_count_size);
+        if (row_counts.size() < row_count_size) return {};
+
+        for (int ch = 0; ch < n_ch; ++ch) {
+            ch_data[ch].resize(row_bytes * height);
+            char* out = ch_data[ch].data();
+            int out_pos = 0;
+            for (int row = 0; row < height; ++row) {
+                int rlen = is_psb
+                    ? psd_u32(row_counts, (ch * height + row) * 4)
+                    : psd_u16(row_counts, (ch * height + row) * 2);
+                QByteArray rdata = f.read(rlen);
+                if (rdata.size() < rlen) return {};
+                // PackBits decode
+                int i = 0;
+                while (i < rlen && out_pos < row_bytes * height) {
+                    int n = (signed char)rdata[i++];
+                    if (n >= 0) {
+                        int cnt = n + 1;
+                        if (i + cnt > rlen) break;
+                        memcpy(out + out_pos, rdata.constData() + i, cnt);
+                        out_pos += cnt; i += cnt;
+                    } else if (n != -128) {
+                        int cnt = -n + 1;
+                        char val = rdata[i++];
+                        memset(out + out_pos, val, cnt);
+                        out_pos += cnt;
+                    } else { i++; }
+                }
+            }
+        }
+    } else {
+        return {};  // ZIP — pomijamy (rzadkie w composite)
+    }
+
+    // Złóż kanały w QImage (8-bit)
+    QImage img(width, height, QImage::Format_RGB32);
+    for (int y = 0; y < height; ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        int base = y * row_bytes;
+        for (int x = 0; x < width; ++x) {
+            int r, g, b;
+            if (depth == 8) {
+                r = quint8(ch_data[0][base + x]);
+                g = quint8(ch_data[1][base + x]);
+                b = quint8(ch_data[2][base + x]);
+            } else {
+                // 16-bit → 8-bit (big endian)
+                r = quint8(ch_data[0][base + x*2]);
+                g = quint8(ch_data[1][base + x*2]);
+                b = quint8(ch_data[2][base + x*2]);
+            }
+            line[x] = qRgb(r, g, b);
+        }
+    }
+    return img;
+}
+
+// Szuka resource thumbnail (0x040C) jako ostatni fallback
 static QImage load_psd_jpeg_resource(const QString& path, quint16 target_res_id) {
+    Q_UNUSED(target_res_id)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return {};
     QByteArray header = f.read(26);
@@ -264,28 +391,28 @@ static QImage load_psd_jpeg_resource(const QString& path, quint16 target_res_id)
     f.seek(26);
     QByteArray cmLen4 = f.read(4);
     if (cmLen4.size() < 4) return {};
-    quint32 cmLen = (quint8(cmLen4[0])<<24)|(quint8(cmLen4[1])<<16)|(quint8(cmLen4[2])<<8)|quint8(cmLen4[3]);
+    quint32 cmLen = psd_u32(cmLen4, 0);
     f.seek(26 + 4 + cmLen);
     QByteArray irLen4 = f.read(4);
     if (irLen4.size() < 4) return {};
-    quint32 irLen = (quint8(irLen4[0])<<24)|(quint8(irLen4[1])<<16)|(quint8(irLen4[2])<<8)|quint8(irLen4[3]);
+    quint32 irLen = psd_u32(irLen4, 0);
     qint64 irEnd = f.pos() + irLen;
     while (f.pos() < irEnd) {
         if (f.read(4).size() < 4) break;
         QByteArray id2 = f.read(2);
         if (id2.size() < 2) break;
-        quint16 resId = (quint8(id2[0])<<8)|quint8(id2[1]);
+        quint16 resId = psd_u16(id2, 0);
         quint8 nameLen = 0;
         f.read(reinterpret_cast<char*>(&nameLen), 1);
         f.seek(f.pos() + (nameLen % 2 == 0 ? nameLen + 1 : nameLen));
         QByteArray rs4 = f.read(4);
         if (rs4.size() < 4) break;
-        quint32 resSize = (quint8(rs4[0])<<24)|(quint8(rs4[1])<<16)|(quint8(rs4[2])<<8)|quint8(rs4[3]);
+        quint32 resSize = psd_u32(rs4, 0);
         if (resId == 0x040C) {
             QByteArray th = f.read(28);
             if (th.size() >= 28) {
-                quint32 fmt      = (quint8(th[0])<<24)|(quint8(th[1])<<16)|(quint8(th[2])<<8)|quint8(th[3]);
-                quint32 dataSize = (quint8(th[20])<<24)|(quint8(th[21])<<16)|(quint8(th[22])<<8)|quint8(th[23]);
+                quint32 fmt      = psd_u32(th, 0);
+                quint32 dataSize = psd_u32(th, 20);
                 if (fmt == 1 && dataSize > 0 && dataSize < 50*1024*1024) {
                     QByteArray jpegData = f.read(dataSize);
                     QBuffer buf(&jpegData);
@@ -515,14 +642,15 @@ void FullscreenViewer::load_current() {
             QString ext = QFileInfo(path).suffix().toLower();
             if (ext == "psd" || ext == "psb") {
                 // PSD: próbuj w kolejności od najlepszej jakości
-                // 1. Qt plugin (pełna rozdzielczość, może nie działać)
-                QImageReader reader(path);
-                reader.setAutoTransform(true);
-                img = reader.read();
-                // 2. JPEG composite resource 0x0409 (wysoka jakość, Save As JPEG w PS)
-                if (img.isNull())
-                    img = load_psd_jpeg_resource(path, 0x0409);
-                // 3. Thumbnail resource 0x040C (niska rozdzielczość, zawsze dostępny)
+                // 1. Pełny composite z danych obrazu (najlepsza jakość)
+                img = load_psd_composite(path);
+                // 2. Qt plugin fallback
+                if (img.isNull()) {
+                    QImageReader reader(path);
+                    reader.setAutoTransform(true);
+                    img = reader.read();
+                }
+                // 3. Thumbnail JPEG (ostateczny fallback)
                 if (img.isNull())
                     img = load_psd_jpeg_resource(path, 0x040C);
             } else {
