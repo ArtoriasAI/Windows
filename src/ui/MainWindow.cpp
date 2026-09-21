@@ -1586,7 +1586,7 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
         if (e->key() == Qt::Key_E && !(e->modifiers() & Qt::ShiftModifier)) {
             auto* g = current_grid();
             if (g) {
-                QStringList paths = g->selected_paths();
+                QStringList paths = g->selected_paths_ordered();
                 if (paths.isEmpty() && !g->primary_path().isEmpty())
                     paths << g->primary_path();
                 open_in_external_editor(paths, false);
@@ -1597,7 +1597,7 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
         if (e->key() == Qt::Key_E && (e->modifiers() & Qt::ShiftModifier)) {
             auto* g = current_grid();
             if (g) {
-                QStringList paths = g->selected_paths();
+                QStringList paths = g->selected_paths_ordered();
                 if (paths.isEmpty() && !g->primary_path().isEmpty())
                     paths << g->primary_path();
                 open_in_external_editor(paths, true);
