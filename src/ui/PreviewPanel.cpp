@@ -170,7 +170,11 @@ void PreviewPanel::rename_path(const QString& old_path, const QString& new_path)
 // Ładuje embedded JPEG z RAW — szybkie (~50ms), dobra jakość
 static QImage load_raw_preview(const QString& path, int target) {
     LibRaw raw;
+#ifdef Q_OS_WIN
+    if (raw.open_file(reinterpret_cast<const wchar_t*>(path.utf16())) != LIBRAW_SUCCESS)
+#else
     if (raw.open_file(path.toLocal8Bit().constData()) != LIBRAW_SUCCESS)
+#endif
         return {};
 
     // Embedded JPEG thumbnail — najszybsza metoda
