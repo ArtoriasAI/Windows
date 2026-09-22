@@ -1143,72 +1143,46 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
     // Tryb: otwórz jako warstwę w Photoshopie
     if (as_layer || SettingsDialog::external_editor_as_layer()) {
 #ifdef Q_OS_WIN
-        // Windows: użyj PowerShell + COM aby umieścić pliki jako warstwy
-        // PS COM API: app.load() z opcją lub Place Embedded
-        // Budujemy tymczasowy skrypt JSX który PS wykona
-        QString jsx_content = "var files = [";
-        for (int i = 0; i < paths.size(); ++i) {
-            QString p = paths[i];
-            p.replace("\", "\\");
-            jsx_content += QString("File("%1")").arg(p);
-            if (i < paths.size() - 1) jsx_content += ",";
+        // Windows: uruchom PS z JSX który umieszcza pliki jako warstwy
+        // Buduj ścieżki plików do JSX
+        QStringList jsx_files;
+        for (const QString& p : paths) {
+            QString escaped = p;
+            escaped.replace(QLatin1Char('\\'), QLatin1String("/"));
+            jsx_files << QString("File(\"%1\")").arg(escaped);
         }
-        jsx_content += "];
-"
-            "var doc;
-"
-            "try { doc = app.activeDocument; } catch(e) { doc = null; }
-"
-            "if (!doc) {
-"
-            "    // Brak aktywnego dokumentu - otwórz pierwszy plik normalnie
-"
-            "    doc = app.open(files[0]);
-"
-            "    for (var i = 1; i < files.length; i++) {
-"
-            "        var placed = doc.artLayers.add();
-"
-            "        app.open(files[i]);
-"
-            "    }
-"
-            "} else {
-"
-            "    // Umieść wszystkie pliki jako Smart Objects (Place Embedded)
-"
-            "    for (var i = 0; i < files.length; i++) {
-"
-            "        var idPlc = charIDToTypeID('Plc ');
-"
-            "        var desc = new ActionDescriptor();
-"
-            "        var idnull = charIDToTypeID('null');
-"
-            "        desc.putPath(idnull, files[i]);
-"
-            "        var idFTcs = charIDToTypeID('FTcs');
-"
-            "        var idQCSt = charIDToTypeID('QCSt');
-"
-            "        var idQcsa = charIDToTypeID('Qcsa');
-"
-            "        desc.putEnumerated(idFTcs, idQCSt, idQcsa);
-"
-            "        executeAction(idPlc, desc, DialogModes.NO);
-"
-            "    }
-"
-            "}
-";
+        QString files_array = jsx_files.join(",");
 
-        // Zapisz JSX do pliku tymczasowego
+        // JSX skrypt — Place Embedded do aktywnego dokumentu PS
+        QString jsx_content = QString(R"JSX(
+var files = [%1];
+var doc;
+try { doc = app.activeDocument; } catch(e) { doc = null; }
+if (!doc) {
+    doc = app.open(files[0]);
+    for (var i = 1; i < files.length; i++) {
+        var idPlc = charIDToTypeID('Plc ');
+        var desc = new ActionDescriptor();
+        desc.putPath(charIDToTypeID('null'), files[i]);
+        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
+        executeAction(idPlc, desc, DialogModes.NO);
+    }
+} else {
+    for (var i = 0; i < files.length; i++) {
+        var idPlc = charIDToTypeID('Plc ');
+        var desc = new ActionDescriptor();
+        desc.putPath(charIDToTypeID('null'), files[i]);
+        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
+        executeAction(idPlc, desc, DialogModes.NO);
+    }
+}
+)JSX").arg(files_array);
+
         QString jsx_path = QDir::tempPath() + "/lape_place.jsx";
         QFile jsx_file(jsx_path);
         if (jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
             jsx_file.write(jsx_content.toUtf8());
             jsx_file.close();
-            // Uruchom PS z JSX
             QProcess::startDetached(editor, {"-r", jsx_path});
             return;
         }
