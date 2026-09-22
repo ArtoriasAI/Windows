@@ -451,18 +451,33 @@ void MainWindow::setup_tabs() {
         "border: none; border-radius: 3px; padding-bottom: 2px; }"
         "QToolButton:hover { background: #383838; color: #fff; }");
 
+    // Przycisk nowego okna — otwiera nową instancję z aktualną lokalizacją
+    auto* new_win_btn = new QToolButton(bar);
+    new_win_btn->setText("⧉");
+    new_win_btn->setToolTip("Nowe okno z aktualną lokalizacją (Ctrl+Shift+N)");
+    new_win_btn->setAutoRaise(true);
+    new_win_btn->setFixedSize(28, 28);
+    new_win_btn->setFocusPolicy(Qt::NoFocus);
+    new_win_btn->setStyleSheet(
+        "QToolButton { background: #1e1e1e; color: #888; font-size: 14px; "
+        "border: none; border-radius: 3px; }"
+        "QToolButton:hover { background: #383838; color: #fff; }");
+
     // Lambda repozycjonująca przycisk za ostatnią zakładką
-    auto reposition_btn = [bar, new_tab_btn]() {
+    auto reposition_btn = [bar, new_tab_btn, new_win_btn]() {
         int n = bar->count();
+        int x_start;
         if (n == 0) {
-            new_tab_btn->move(2, (bar->height() - 28) / 2);
+            x_start = 2;
         } else {
             QRect last = bar->tabRect(n - 1);
-            int x = last.right() + 2;
-            int y = (bar->height() - 28) / 2;
-            new_tab_btn->move(x, y);
+            x_start = last.right() + 2;
         }
+        int y = (bar->height() - 28) / 2;
+        new_tab_btn->move(x_start, y);
+        new_win_btn->move(x_start + 30, y);
         new_tab_btn->raise();
+        new_win_btn->raise();
     };
 
     // Repozycjonuj przy każdej zmianie zakładek
@@ -500,6 +515,12 @@ void MainWindow::setup_tabs() {
     QObject::connect(new_tab_btn, &QToolButton::clicked, this, [this, reposition_btn]() {
         action_new_tab();
         QTimer::singleShot(50, this, [reposition_btn]() { reposition_btn(); });
+    });
+
+    QObject::connect(new_win_btn, &QToolButton::clicked, this, [this]() {
+        auto* g = current_grid();
+        QString folder = g ? g->current_dir() : QString();
+        open_folder_in_new_window(folder);
     });
 
     QObject::connect(m_tabs, &QTabWidget::currentChanged,
@@ -1119,19 +1140,85 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         return;
     }
 
-    // Tryb: otwórz jako warstwę w Photoshopie przez Lape plugin (IPC)
+    // Tryb: otwórz jako warstwę w Photoshopie
     if (as_layer || SettingsDialog::external_editor_as_layer()) {
-        // Wysyłamy pliki przez IPC do otwartego Photoshopa
-        // Lape plugin obsługuje "place_as_layer" command
+#ifdef Q_OS_WIN
+        // Windows: użyj PowerShell + COM aby umieścić pliki jako warstwy
+        // PS COM API: app.load() z opcją lub Place Embedded
+        // Budujemy tymczasowy skrypt JSX który PS wykona
+        QString jsx_content = "var files = [";
+        for (int i = 0; i < paths.size(); ++i) {
+            QString p = paths[i];
+            p.replace("\", "\\");
+            jsx_content += QString("File("%1")").arg(p);
+            if (i < paths.size() - 1) jsx_content += ",";
+        }
+        jsx_content += "];
+"
+            "var doc;
+"
+            "try { doc = app.activeDocument; } catch(e) { doc = null; }
+"
+            "if (!doc) {
+"
+            "    // Brak aktywnego dokumentu - otwórz pierwszy plik normalnie
+"
+            "    doc = app.open(files[0]);
+"
+            "    for (var i = 1; i < files.length; i++) {
+"
+            "        var placed = doc.artLayers.add();
+"
+            "        app.open(files[i]);
+"
+            "    }
+"
+            "} else {
+"
+            "    // Umieść wszystkie pliki jako Smart Objects (Place Embedded)
+"
+            "    for (var i = 0; i < files.length; i++) {
+"
+            "        var idPlc = charIDToTypeID('Plc ');
+"
+            "        var desc = new ActionDescriptor();
+"
+            "        var idnull = charIDToTypeID('null');
+"
+            "        desc.putPath(idnull, files[i]);
+"
+            "        var idFTcs = charIDToTypeID('FTcs');
+"
+            "        var idQCSt = charIDToTypeID('QCSt');
+"
+            "        var idQcsa = charIDToTypeID('Qcsa');
+"
+            "        desc.putEnumerated(idFTcs, idQCSt, idQcsa);
+"
+            "        executeAction(idPlc, desc, DialogModes.NO);
+"
+            "    }
+"
+            "}
+";
+
+        // Zapisz JSX do pliku tymczasowego
+        QString jsx_path = QDir::tempPath() + "/lape_place.jsx";
+        QFile jsx_file(jsx_path);
+        if (jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            jsx_file.write(jsx_content.toUtf8());
+            jsx_file.close();
+            // Uruchom PS z JSX
+            QProcess::startDetached(editor, {"-r", jsx_path});
+            return;
+        }
+#endif
+        // Fallback dla Linux lub gdy IPC działa
         if (m_ipc && m_ipc->is_connected()) {
             for (const QString& p : paths)
                 m_ipc->open_as_layer(p);
             return;
         }
-        // Fallback — PS nie jest uruchomiony, otwórz normalnie
-        QMessageBox::information(this, "Photoshop nie połączony",
-            "Photoshop nie jest uruchomiony lub Lape plugin nie jest aktywny.\n"
-            "Otwieranie plików normalnie.");
     }
 
     // Standardowe uruchomienie: program [args] plik1 plik2 ...
