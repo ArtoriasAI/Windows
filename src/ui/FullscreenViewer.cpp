@@ -522,7 +522,7 @@ void FullscreenViewer::load_current() {
             raw.imgdata.params.output_color     = 1;
             raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
             raw.imgdata.params.gamm[1]          = 4.5;
-            raw.imgdata.params.no_auto_bright   = 0;
+            raw.imgdata.params.no_auto_bright   = 1;
             raw.imgdata.params.bright           = 1.0f;
             raw.imgdata.params.user_flip        = -1;
             if ((raw.open_file(
@@ -764,7 +764,7 @@ void FullscreenViewer::load_full_resolution() {
         raw.imgdata.params.output_color     = 1;
         raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
         raw.imgdata.params.gamm[1]          = 4.5;
-        raw.imgdata.params.no_auto_bright   = 0;
+        raw.imgdata.params.no_auto_bright   = 1;
         raw.imgdata.params.bright           = 1.0f;
         raw.imgdata.params.user_flip        = -1;
 
@@ -951,7 +951,7 @@ void FullscreenViewer::prefetch_full_neighbors() {
             raw.imgdata.params.output_color     = 1;
             raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
             raw.imgdata.params.gamm[1]          = 4.5;
-            raw.imgdata.params.no_auto_bright   = 0;
+            raw.imgdata.params.no_auto_bright   = 1;
             raw.imgdata.params.bright           = 1.0f;
             raw.imgdata.params.user_flip        = -1;
 
@@ -1087,28 +1087,120 @@ void FullscreenViewer::prefetch_neighbors() {
                 QString ext = QFileInfo(path).suffix().toLower();
 
                 if (raw_exts.contains(ext)) {
-                    // Prefetch: użyj embedded JPEG z RAW — szybkie i poprawna jasność
+                    // Prefetch: quarter_size RAW z brightness matchingiem
+                    // Etap 1: zmierz jasność embedded JPEG
+                    std::vector<uint8_t> jpeg_lumas_pf;
+                    {
+                        LibRaw rj;
+                        if ((rj.open_file(
+#ifdef Q_OS_WIN
+                reinterpret_cast<const wchar_t*>(path.utf16())
+#else
+                path.toLocal8Bit().constData()
+#endif
+                        )) == LIBRAW_SUCCESS && rj.unpack_thumb() == LIBRAW_SUCCESS) {
+                            libraw_processed_image_t* t = rj.dcraw_make_mem_thumb();
+                            if (t && t->type == LIBRAW_IMAGE_JPEG) {
+                                QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
+                                LibRaw::dcraw_clear_mem(t);
+                                QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
+                                QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
+                                QImage ji = rd.read();
+                                if (!ji.isNull()) {
+                                    ji = ji.convertToFormat(QImage::Format_RGB32);
+                                    jpeg_lumas_pf.reserve(ji.width() * ji.height() / 4);
+                                    for (int y = 0; y < ji.height(); y += 2) {
+                                        const QRgb* ln = reinterpret_cast<const QRgb*>(ji.constScanLine(y));
+                                        for (int x = 0; x < ji.width(); x += 2)
+                                            jpeg_lumas_pf.push_back((uint8_t)(0.299f*qRed(ln[x])
+                                                + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                                    }
+                                    std::sort(jpeg_lumas_pf.begin(), jpeg_lumas_pf.end());
+                                }
+                            } else if (t) { LibRaw::dcraw_clear_mem(t); }
+                        }
+                    }
+                    // Etap 2: decode RAW
                     LibRaw raw;
+                    raw.imgdata.params.half_size        = 1;
+                    raw.imgdata.params.four_color_rgb   = 0;
+                    raw.imgdata.params.use_camera_wb    = 1;
+                    raw.imgdata.params.use_auto_wb      = 0;
+                    raw.imgdata.params.use_camera_matrix= 1;
+                    raw.imgdata.params.output_color     = 1;
+                    raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
+                    raw.imgdata.params.gamm[1]          = 4.5;
+                    raw.imgdata.params.no_auto_bright   = 1;
+                    raw.imgdata.params.bright           = 1.0f;
+                    raw.imgdata.params.user_flip        = -1;
                     if ((raw.open_file(
 #ifdef Q_OS_WIN
                 reinterpret_cast<const wchar_t*>(path.utf16())
 #else
                 path.toLocal8Bit().constData()
 #endif
-            )) == LIBRAW_SUCCESS && raw.unpack_thumb() == LIBRAW_SUCCESS) {
-                        libraw_processed_image_t* thumb = raw.dcraw_make_mem_thumb();
-                        if (thumb && thumb->type == LIBRAW_IMAGE_JPEG) {
-                            QByteArray jpeg_data(
-                                reinterpret_cast<const char*>(thumb->data),
-                                static_cast<int>(thumb->data_size));
-                            LibRaw::dcraw_clear_mem(thumb);
-                            QBuffer buf(&jpeg_data);
-                            buf.open(QIODevice::ReadOnly);
-                            QImageReader reader(&buf, "JPEG");
-                            reader.setAutoTransform(true);
-                            img = reader.read();
-                        } else if (thumb) {
-                            LibRaw::dcraw_clear_mem(thumb);
+                    )) == LIBRAW_SUCCESS &&
+                        raw.unpack()        == LIBRAW_SUCCESS &&
+                        raw.dcraw_process() == LIBRAW_SUCCESS) {
+                        libraw_processed_image_t* proc = raw.dcraw_make_mem_image();
+                        if (proc) {
+                            QImage half(proc->data, proc->width, proc->height,
+                                        proc->width * 3, QImage::Format_RGB888);
+                            img = half.scaled(half.width() / 2, half.height() / 2,
+                                              Qt::IgnoreAspectRatio,
+                                              Qt::FastTransformation).copy();
+                            LibRaw::dcraw_clear_mem(proc);
+                        }
+                    }
+                    // Etap 3: brightness matching (identyczny jak load_current)
+                    if (!img.isNull() && !jpeg_lumas_pf.empty()) {
+                        auto jpeg_pct = [&](float p) -> float {
+                            return (float)jpeg_lumas_pf[(size_t)(jpeg_lumas_pf.size() * p)];
+                        };
+                        QImage tmp = img.convertToFormat(QImage::Format_RGB32);
+                        std::vector<uint8_t> lumas_raw;
+                        lumas_raw.reserve(tmp.width() * tmp.height() / 4);
+                        for (int y = 0; y < tmp.height(); y += 2) {
+                            const QRgb* ln = reinterpret_cast<const QRgb*>(tmp.constScanLine(y));
+                            for (int x = 0; x < tmp.width(); x += 2)
+                                lumas_raw.push_back((uint8_t)(0.299f*qRed(ln[x])
+                                    + 0.587f*qGreen(ln[x]) + 0.114f*qBlue(ln[x])));
+                        }
+                        std::sort(lumas_raw.begin(), lumas_raw.end());
+                        int n = lumas_raw.size();
+                        float raw_anchor = -1.f, jpeg_anchor = -1.f, factor = 1.f;
+                        for (float p = 0.90f; p >= 0.10f; p -= 0.05f) {
+                            float rv = (float)lumas_raw[(size_t)(n * p)];
+                            if (rv < 128.f) {
+                                raw_anchor  = rv;
+                                jpeg_anchor = jpeg_pct(p);
+                                break;
+                            }
+                        }
+                        if (raw_anchor > 1.f) {
+                            float ja = std::min(jpeg_anchor, 253.f);
+                            factor = ja / raw_anchor;
+                            float max_f = (jpeg_anchor > 180.f) ? 1.55f : 2.5f;
+                            factor = std::clamp(factor, 0.70f, max_f);
+                        }
+                        if (std::abs(factor - 1.f) > 0.01f) {
+                            img = img.convertToFormat(QImage::Format_RGB32);
+                            for (int y = 0; y < img.height(); ++y) {
+                                QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+                                for (int x = 0; x < img.width(); ++x) {
+                                    float r = qRed(line[x])   / 255.f;
+                                    float g = qGreen(line[x]) / 255.f;
+                                    float b = qBlue(line[x])  / 255.f;
+                                    float luma = 0.299f*r + 0.587f*g + 0.114f*b;
+                                    float t2 = std::clamp((luma - 0.75f) / (0.95f - 0.75f), 0.f, 1.f);
+                                    float eff = factor * (1.f - t2) + 1.f * t2;
+                                    float scale = (luma > 0.001f) ? std::min(eff, 1.f / luma) : 1.f;
+                                    line[x] = qRgb(
+                                        std::clamp((int)(r * scale * 255.f + .5f), 0, 255),
+                                        std::clamp((int)(g * scale * 255.f + .5f), 0, 255),
+                                        std::clamp((int)(b * scale * 255.f + .5f), 0, 255));
+                                }
+                            }
                         }
                     }
                 }
