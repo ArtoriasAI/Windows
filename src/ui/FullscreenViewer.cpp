@@ -522,7 +522,7 @@ void FullscreenViewer::load_current() {
             raw.imgdata.params.output_color     = 1;
             raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
             raw.imgdata.params.gamm[1]          = 4.5;
-            raw.imgdata.params.no_auto_bright   = 1;
+            raw.imgdata.params.no_auto_bright   = 0;
             raw.imgdata.params.bright           = 1.0f;
             raw.imgdata.params.user_flip        = -1;
             if ((raw.open_file(
@@ -764,7 +764,7 @@ void FullscreenViewer::load_full_resolution() {
         raw.imgdata.params.output_color     = 1;
         raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
         raw.imgdata.params.gamm[1]          = 4.5;
-        raw.imgdata.params.no_auto_bright   = 1;
+        raw.imgdata.params.no_auto_bright   = 0;
         raw.imgdata.params.bright           = 1.0f;
         raw.imgdata.params.user_flip        = -1;
 
@@ -951,7 +951,7 @@ void FullscreenViewer::prefetch_full_neighbors() {
             raw.imgdata.params.output_color     = 1;
             raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
             raw.imgdata.params.gamm[1]          = 4.5;
-            raw.imgdata.params.no_auto_bright   = 1;
+            raw.imgdata.params.no_auto_bright   = 0;
             raw.imgdata.params.bright           = 1.0f;
             raw.imgdata.params.user_flip        = -1;
 
@@ -1087,36 +1087,28 @@ void FullscreenViewer::prefetch_neighbors() {
                 QString ext = QFileInfo(path).suffix().toLower();
 
                 if (raw_exts.contains(ext)) {
-                    // Prefetch: quarter_size RAW — bez JPEG, szybki placeholder
+                    // Prefetch: użyj embedded JPEG z RAW — szybkie i poprawna jasność
                     LibRaw raw;
-                    raw.imgdata.params.half_size        = 1;
-                    raw.imgdata.params.four_color_rgb   = 0;
-                    raw.imgdata.params.use_camera_wb    = 1;
-                    raw.imgdata.params.use_auto_wb      = 0;
-                    raw.imgdata.params.use_camera_matrix= 1;
-                    raw.imgdata.params.output_color     = 1;
-                    raw.imgdata.params.gamm[0]          = 1.0 / 2.222;
-                    raw.imgdata.params.gamm[1]          = 4.5;
-                    raw.imgdata.params.no_auto_bright   = 1;
-                    raw.imgdata.params.bright           = 1.0f;
-                    raw.imgdata.params.user_flip        = -1;
                     if ((raw.open_file(
 #ifdef Q_OS_WIN
                 reinterpret_cast<const wchar_t*>(path.utf16())
 #else
                 path.toLocal8Bit().constData()
 #endif
-            )) == LIBRAW_SUCCESS &&
-                        raw.unpack()        == LIBRAW_SUCCESS &&
-                        raw.dcraw_process() == LIBRAW_SUCCESS) {
-                        libraw_processed_image_t* proc = raw.dcraw_make_mem_image();
-                        if (proc) {
-                            QImage half(proc->data, proc->width, proc->height,
-                                        proc->width * 3, QImage::Format_RGB888);
-                            img = half.scaled(half.width() / 2, half.height() / 2,
-                                              Qt::IgnoreAspectRatio,
-                                              Qt::FastTransformation).copy();
-                            LibRaw::dcraw_clear_mem(proc);
+            )) == LIBRAW_SUCCESS && raw.unpack_thumb() == LIBRAW_SUCCESS) {
+                        libraw_processed_image_t* thumb = raw.dcraw_make_mem_thumb();
+                        if (thumb && thumb->type == LIBRAW_IMAGE_JPEG) {
+                            QByteArray jpeg_data(
+                                reinterpret_cast<const char*>(thumb->data),
+                                static_cast<int>(thumb->data_size));
+                            LibRaw::dcraw_clear_mem(thumb);
+                            QBuffer buf(&jpeg_data);
+                            buf.open(QIODevice::ReadOnly);
+                            QImageReader reader(&buf, "JPEG");
+                            reader.setAutoTransform(true);
+                            img = reader.read();
+                        } else if (thumb) {
+                            LibRaw::dcraw_clear_mem(thumb);
                         }
                     }
                 }
