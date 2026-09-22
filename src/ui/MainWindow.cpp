@@ -14,6 +14,7 @@
 #include "LapesEye/ui/SettingsDialog.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
 #include <QProcess>
+#include <algorithm>
 #include <QMessageBox>
 #include "LapesEye/ui/CollectionDialog.h"
 #include "LapesEye/core/Collection.h"
@@ -1145,8 +1146,11 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
 #ifdef Q_OS_WIN
         // Windows: uruchom PS z JSX który umieszcza pliki jako warstwy
         // Buduj ścieżki plików do JSX
+        // Odwróć kolejność — PS dodaje warstwy od dołu, więc ostatni plik trafia na górę
+        QStringList paths_rev = paths;
+        std::reverse(paths_rev.begin(), paths_rev.end());
         QStringList jsx_files;
-        for (const QString& p : paths) {
+        for (const QString& p : paths_rev) {
             QString escaped = p;
             escaped.replace(QLatin1Char('\\'), QLatin1String("/"));
             jsx_files << QString("File(\"%1\")").arg(escaped);
