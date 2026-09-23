@@ -36,6 +36,7 @@ struct GridFilter {
     int        min_rating    = 0;
     ColorLabel color_label   = ColorLabel::None;
     PickFlag   pick_flag     = PickFlag::None;
+    bool       only_unflagged = false;  // tylko bez flagi (Pick i Reject ukryte)
     QString    name_contains;
     bool       only_raw      = false;
     bool       only_psd      = false;
@@ -71,6 +72,7 @@ struct GridFilter {
         return use_date_from || use_date_to || use_size_min || use_size_max
             || use_dim || !camera_contains.isEmpty() || !lens_contains.isEmpty()
             || iso_min > 0 || iso_max > 0 || only_jpg
+           || only_unflagged
             || focal_min > 0 || focal_max > 0
             || fnumber_min > 0 || fnumber_max > 0
             || exposure_denom_min > 0 || exposure_denom_max > 0;
