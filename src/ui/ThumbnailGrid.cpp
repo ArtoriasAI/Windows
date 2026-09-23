@@ -800,6 +800,7 @@ bool ThumbnailGrid::passes_filter(const ScannedFile& f) const {
     bool needs_meta = m_filter.min_rating > 0
                    || m_filter.color_label != ColorLabel::None
                    || m_filter.pick_flag   != PickFlag::None
+                   || m_filter.only_unflagged
                    || m_filter.use_dim
                    || !m_filter.camera_contains.isEmpty()
                    || !m_filter.lens_contains.isEmpty()
