@@ -39,6 +39,9 @@ void FilterBar::setup_ui() {
     m_all_btn->setChecked(true);  // domyślnie
     layout->addWidget(m_all_btn);
 
+    m_unflagged_only = make_btn("Nie zaznaczone", "Pokaż tylko pliki bez flagi (ukryj Wybrane i Odrzucone)");
+    layout->addWidget(m_unflagged_only);
+
     m_pick_only = make_btn("✓  Wybrane", "Pokaż tylko wybrane (z flagą Pick)");
     layout->addWidget(m_pick_only);
 
@@ -180,7 +183,7 @@ void FilterBar::setup_ui() {
     // Przyciski widoczności są wzajemnie wykluczające
     auto exclusive_toggle = [this](QToolButton* clicked_btn) {
         // Odznacz pozostałe przyciski widoczności
-        for (auto* btn : {m_all_btn, m_pick_only, m_reject_only}) {
+        for (auto* btn : {m_all_btn, m_unflagged_only, m_pick_only, m_reject_only}) {
             if (btn != clicked_btn) btn->setChecked(false);
         }
         // Jeśli odznaczono aktywny — wróć do "Wszystkie"
@@ -190,9 +193,10 @@ void FilterBar::setup_ui() {
         emit_filter();
     };
 
-    QObject::connect(m_all_btn,    &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_all_btn); });
-    QObject::connect(m_pick_only,  &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_pick_only); });
-    QObject::connect(m_reject_only,&QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_reject_only); });
+    QObject::connect(m_all_btn,       &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_all_btn); });
+    QObject::connect(m_unflagged_only,&QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_unflagged_only); });
+    QObject::connect(m_pick_only,     &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_pick_only); });
+    QObject::connect(m_reject_only,   &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_reject_only); });
 
     QObject::connect(m_raw_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
     QObject::connect(m_psd_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
@@ -252,6 +256,7 @@ void FilterBar::emit_filter() {
         f.pick_flag = PickFlag::Reject;
     else
         f.pick_flag = PickFlag::None;
+    f.only_unflagged = m_unflagged_only->isChecked();
 
     f.only_raw      = m_raw_only->isChecked();
     f.only_psd      = m_psd_only->isChecked();
