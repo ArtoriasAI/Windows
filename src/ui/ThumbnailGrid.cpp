@@ -816,6 +816,8 @@ bool ThumbnailGrid::passes_filter(const ScannedFile& f) const {
             meta.color_label != m_filter.color_label) return false;
         if (m_filter.pick_flag != PickFlag::None &&
             meta.pick_flag != m_filter.pick_flag) return false;
+        // Nie zaznaczone — ukryj pliki z flagą Pick lub Reject
+        if (m_filter.only_unflagged && meta.pick_flag != PickFlag::None) return false;
         const auto& ex = meta.exif;
         if (!m_filter.camera_contains.isEmpty()) {
             QString cam = ex.camera_make + " " + ex.camera_model;
