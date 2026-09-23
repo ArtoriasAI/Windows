@@ -31,8 +31,9 @@ private:
     static QPixmap make_split2_icon();
     static QPixmap make_split4_icon();
 
-    QToolButton* m_all_btn     = nullptr;
-    QToolButton* m_pick_only   = nullptr;
+    QToolButton* m_all_btn        = nullptr;
+    QToolButton* m_unflagged_only = nullptr;
+    QToolButton* m_pick_only      = nullptr;
     QToolButton* m_reject_only = nullptr;
     QToolButton* m_raw_only    = nullptr;
     QToolButton* m_psd_only    = nullptr;
