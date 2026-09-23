@@ -49,6 +49,7 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
+    void action_merge_to_other_window();
     void on_folder_selected(const QString& path);
     void on_folder_in_new_tab(const QString& path);
     void on_folder_in_new_window(const QString& path);
