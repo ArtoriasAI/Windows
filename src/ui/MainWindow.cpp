@@ -582,6 +582,8 @@ void MainWindow::setup_menu() {
     perf_act->setVisible(LAPE_PERF != 0);
     file_menu->addSeparator();
     file_menu->addAction("Nowa zakładka",    QKeySequence("Ctrl+T"),  this, &MainWindow::action_new_tab);
+    file_menu->addAction("Przenieś do innego okna jako zakładkę", QKeySequence("Ctrl+Shift+M"),
+                         this, &MainWindow::action_merge_to_other_window);
     file_menu->addAction("Zamknij zakładkę", QKeySequence("Ctrl+W"),  this, &MainWindow::action_close_tab);
     file_menu->addSeparator();
     file_menu->addAction("Wyjdź", QKeySequence("Ctrl+Q"), qApp, &QApplication::quit);
@@ -978,6 +980,53 @@ void MainWindow::open_folder_in_new_window(const QString& path) {
     auto* w = new MainWindow();
     w->show();
     if (!path.isEmpty()) w->open_folder(path);
+}
+
+void MainWindow::action_merge_to_other_window() {
+    // Znajdź inne okna MainWindow
+    QList<MainWindow*> other_windows;
+    for (QWidget* w : QApplication::topLevelWidgets()) {
+        auto* mw = qobject_cast<MainWindow*>(w);
+        if (mw && mw != this && mw->isVisible())
+            other_windows << mw;
+    }
+
+    if (other_windows.isEmpty()) {
+        statusBar()->showMessage("Brak innych otwartych okien", 3000);
+        return;
+    }
+
+    // Pobierz aktualny folder z wszystkich zakładek tego okna
+    QStringList folders;
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto* g = qobject_cast<ThumbnailGrid*>(m_tabs->widget(i));
+        if (g && !g->current_dir().isEmpty())
+            folders << g->current_dir();
+    }
+
+    // Jeśli jest jedno inne okno — przenieś od razu
+    MainWindow* target = other_windows.first();
+    if (other_windows.size() > 1) {
+        // Pokaż menu wyboru okna
+        QMenu menu(this);
+        for (auto* mw : other_windows) {
+            QString title = mw->windowTitle();
+            if (title.isEmpty()) title = "Okno";
+            menu.addAction(title, [mw, &target]() { target = mw; });
+        }
+        menu.exec(QCursor::pos());
+    }
+
+    // Przenieś wszystkie zakładki tego okna do target jako nowe zakładki
+    for (const QString& folder : folders)
+        target->open_folder_in_new_tab(folder, false);
+
+    // Ustaw aktywną zakładkę w target na ostatnią dodaną
+    target->raise();
+    target->activateWindow();
+
+    // Zamknij to okno
+    close();
 }
 
 void MainWindow::select_file(const QString& path) {
