@@ -1213,29 +1213,27 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
             jsx_names << QString(""%1"").arg(QFileInfo(p).fileName());
         QString names_array = jsx_names.join(",");
 
-        QString jsx_content = QString(R"JSX(
-var files = [%1];
-var names = [%2];
+        // Buduj JSX przez konkatenację żeby uniknąć problemów z % w raw string
+        QString jsx_content =
+            QStringLiteral("var files = [") + files_array + QStringLiteral("];
+") +
+            QStringLiteral("var names = [") + names_array + QStringLiteral("];
+") +
+            QStringLiteral(R"JSX(
 var doc;
 try { doc = app.activeDocument; } catch(e) { doc = null; }
-// Funkcja pomocnicza: ustaw nazwę warstwy i dokumentu po Place
-function fixName(file, name) {
-    try {
-        // Zmień nazwę aktywnej warstwy na nazwę pliku
-        app.activeDocument.activeLayer.name = name;
-    } catch(ex) {}
+function fixName(name) {
+    try { app.activeDocument.activeLayer.name = name; } catch(ex) {}
 }
 if (!doc) {
     doc = app.open(files[0]);
-    // Pierwszy plik: zmień tytuł dokumentu na nazwę pliku
-    try { doc.title = names[0]; } catch(ex) {}
     for (var i = 1; i < files.length; i++) {
         var idPlc = charIDToTypeID('Plc ');
         var desc = new ActionDescriptor();
         desc.putPath(charIDToTypeID('null'), files[i]);
         desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
         executeAction(idPlc, desc, DialogModes.NO);
-        fixName(files[i], names[i]);
+        fixName(names[i]);
     }
 } else {
     for (var i = 0; i < files.length; i++) {
@@ -1244,10 +1242,10 @@ if (!doc) {
         desc.putPath(charIDToTypeID('null'), files[i]);
         desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
         executeAction(idPlc, desc, DialogModes.NO);
-        fixName(files[i], names[i]);
+        fixName(names[i]);
     }
 }
-)JSX").arg(files_array, names_array);
+)JSX");
 
         QString jsx_path = QDir::tempPath() + "/lape_place.jsx";
         QFile jsx_file(jsx_path);
