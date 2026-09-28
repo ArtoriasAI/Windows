@@ -1268,6 +1268,39 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
     }
 
     // Standardowe uruchomienie: program [args] plik1 plik2 ...
+#ifdef Q_OS_WIN
+    // Windows + Photoshop: użyj JSX żeby PS wyświetlał nazwę pliku zamiast pełnej ścieżki
+    // (PS przez command line pokazuje pełną ścieżkę jako tytuł dokumentu)
+    {
+        QStringList jsx_open_files;
+        for (const QString& p : paths) {
+            QString escaped = p;
+            escaped.replace(QLatin1Char('\\'), QLatin1Char('/'));
+            jsx_open_files << (QLatin1String("File("") + escaped + QLatin1String("")"));
+        }
+        QString jsx_open;
+        jsx_open += "var files = [" + jsx_open_files.join(QLatin1Char(',')) + "];\n";
+        jsx_open += "for (var i = 0; i < files.length; i++) {\n";
+        jsx_open += "    app.open(files[i]);\n";
+        jsx_open += "}\n";
+
+        QString jsx_path = QDir::tempPath() + "/lape_open.jsx";
+        QFile jsx_file(jsx_path);
+        if (jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            jsx_file.write(jsx_open.toUtf8());
+            jsx_file.close();
+            bool ok2 = QProcess::startDetached(editor, {"-r", jsx_path});
+            if (!ok2) {
+                // Fallback do normalnego otwierania
+                QStringList args2;
+                args2 += paths;
+                QProcess::startDetached(editor, args2);
+            }
+            return;
+        }
+    }
+#endif
+
     QString args_str = SettingsDialog::external_editor_args().trimmed();
     QStringList args;
     if (!args_str.isEmpty())
