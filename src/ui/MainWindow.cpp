@@ -1206,47 +1206,41 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         }
         QString files_array = jsx_files.join(",");
 
-        // JSX skrypt — Place Embedded do aktywnego dokumentu PS
-        // Buduj też tablicę samych nazw plików (bez ścieżki)
+        // Buduj nazwy plików dla JSX
         QStringList jsx_names;
         for (const QString& p : paths_rev)
-            jsx_names << QString(""%1"").arg(QFileInfo(p).fileName());
-        QString names_array = jsx_names.join(",");
+            jsx_names << (QLatin1Char('"') + QFileInfo(p).fileName() + QLatin1Char('"'));
+        QString names_array = jsx_names.join(QLatin1Char(','));
 
-        // Buduj JSX przez konkatenację żeby uniknąć problemów z % w raw string
-        QString jsx_content =
-            QStringLiteral("var files = [") + files_array + QStringLiteral("];
-") +
-            QStringLiteral("var names = [") + names_array + QStringLiteral("];
-") +
-            QStringLiteral(R"JSX(
-var doc;
-try { doc = app.activeDocument; } catch(e) { doc = null; }
-function fixName(name) {
-    try { app.activeDocument.activeLayer.name = name; } catch(ex) {}
-}
-if (!doc) {
-    doc = app.open(files[0]);
-    for (var i = 1; i < files.length; i++) {
-        var idPlc = charIDToTypeID('Plc ');
-        var desc = new ActionDescriptor();
-        desc.putPath(charIDToTypeID('null'), files[i]);
-        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
-        executeAction(idPlc, desc, DialogModes.NO);
-        fixName(names[i]);
-    }
-} else {
-    for (var i = 0; i < files.length; i++) {
-        var idPlc = charIDToTypeID('Plc ');
-        var desc = new ActionDescriptor();
-        desc.putPath(charIDToTypeID('null'), files[i]);
-        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
-        executeAction(idPlc, desc, DialogModes.NO);
-        fixName(names[i]);
-    }
-}
-)JSX");
-
+        // JSX jako jeden string — bez raw literals żeby uniknąć problemów MSVC
+        QString jsx_content;
+        jsx_content += "var files = [" + files_array + "];\n";
+        jsx_content += "var names = [" + names_array + "];\n";
+        jsx_content += "var doc;\n";
+        jsx_content += "try { doc = app.activeDocument; } catch(e) { doc = null; }\n";
+        jsx_content += "function fixName(name) {\n";
+        jsx_content += "    try { app.activeDocument.activeLayer.name = name; } catch(ex) {}\n";
+        jsx_content += "}\n";
+        jsx_content += "if (!doc) {\n";
+        jsx_content += "    doc = app.open(files[0]);\n";
+        jsx_content += "    for (var i = 1; i < files.length; i++) {\n";
+        jsx_content += "        var idPlc = charIDToTypeID('Plc ');\n";
+        jsx_content += "        var desc = new ActionDescriptor();\n";
+        jsx_content += "        desc.putPath(charIDToTypeID('null'), files[i]);\n";
+        jsx_content += "        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));\n";
+        jsx_content += "        executeAction(idPlc, desc, DialogModes.NO);\n";
+        jsx_content += "        fixName(names[i]);\n";
+        jsx_content += "    }\n";
+        jsx_content += "} else {\n";
+        jsx_content += "    for (var i = 0; i < files.length; i++) {\n";
+        jsx_content += "        var idPlc = charIDToTypeID('Plc ');\n";
+        jsx_content += "        var desc = new ActionDescriptor();\n";
+        jsx_content += "        desc.putPath(charIDToTypeID('null'), files[i]);\n";
+        jsx_content += "        desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));\n";
+        jsx_content += "        executeAction(idPlc, desc, DialogModes.NO);\n";
+        jsx_content += "        fixName(names[i]);\n";
+        jsx_content += "    }\n";
+        jsx_content += "}\n";
         QString jsx_path = QDir::tempPath() + "/lape_place.jsx";
         QFile jsx_file(jsx_path);
         if (jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
