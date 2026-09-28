@@ -1275,8 +1275,8 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         QStringList jsx_open_files;
         for (const QString& p : paths) {
             QString escaped = p;
-            escaped.replace(QLatin1Char('\\'), QLatin1Char('/'));
-            jsx_open_files << (QLatin1String("File("") + escaped + QLatin1String("")"));
+            escaped.replace(QString("\\"), QString("/"));
+            jsx_open_files << (QString("File("") + escaped + QString("")"));
         }
         QString jsx_open;
         jsx_open += "var files = [" + jsx_open_files.join(QLatin1Char(',')) + "];\n";
