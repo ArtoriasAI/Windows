@@ -1201,7 +1201,7 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         QStringList jsx_files;
         for (const QString& p : paths_rev) {
             QString escaped = p;
-            escaped.replace(QLatin1Char('\\'), QLatin1String("/"));
+            escaped.replace(QString("\\\\"), QString("/"));
             jsx_files << QString("File(\"%1\")").arg(escaped);
         }
         QString files_array = jsx_files.join(",");
@@ -1209,8 +1209,8 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         // Buduj nazwy plików dla JSX
         QStringList jsx_names;
         for (const QString& p : paths_rev)
-            jsx_names << (QLatin1Char('"') + QFileInfo(p).fileName() + QLatin1Char('"'));
-        QString names_array = jsx_names.join(QLatin1Char(','));
+            jsx_names << (QString("\"") + QFileInfo(p).fileName() + QString("\""));
+        QString names_array = jsx_names.join(QString(","));
 
         // JSX jako jeden string — bez raw literals żeby uniknąć problemów MSVC
         QString jsx_content;
@@ -1276,10 +1276,10 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         for (const QString& p : paths) {
             QString escaped = p;
             escaped.replace(QString("\\"), QString("/"));
-            jsx_open_files << (QString("File("") + escaped + QString("")"));
+            jsx_open_files << (QString("File(\"") + escaped + QString("\")"));;
         }
         QString jsx_open;
-        jsx_open += "var files = [" + jsx_open_files.join(QLatin1Char(',')) + "];\n";
+        jsx_open += "var files = [" + jsx_open_files.join(QString(",")) + "];\n";
         jsx_open += "for (var i = 0; i < files.length; i++) {\n";
         jsx_open += "    app.open(files[i]);\n";
         jsx_open += "}\n";
