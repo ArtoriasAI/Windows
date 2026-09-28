@@ -1207,18 +1207,35 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
         QString files_array = jsx_files.join(",");
 
         // JSX skrypt — Place Embedded do aktywnego dokumentu PS
+        // Buduj też tablicę samych nazw plików (bez ścieżki)
+        QStringList jsx_names;
+        for (const QString& p : paths_rev)
+            jsx_names << QString(""%1"").arg(QFileInfo(p).fileName());
+        QString names_array = jsx_names.join(",");
+
         QString jsx_content = QString(R"JSX(
 var files = [%1];
+var names = [%2];
 var doc;
 try { doc = app.activeDocument; } catch(e) { doc = null; }
+// Funkcja pomocnicza: ustaw nazwę warstwy i dokumentu po Place
+function fixName(file, name) {
+    try {
+        // Zmień nazwę aktywnej warstwy na nazwę pliku
+        app.activeDocument.activeLayer.name = name;
+    } catch(ex) {}
+}
 if (!doc) {
     doc = app.open(files[0]);
+    // Pierwszy plik: zmień tytuł dokumentu na nazwę pliku
+    try { doc.title = names[0]; } catch(ex) {}
     for (var i = 1; i < files.length; i++) {
         var idPlc = charIDToTypeID('Plc ');
         var desc = new ActionDescriptor();
         desc.putPath(charIDToTypeID('null'), files[i]);
         desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
         executeAction(idPlc, desc, DialogModes.NO);
+        fixName(files[i], names[i]);
     }
 } else {
     for (var i = 0; i < files.length; i++) {
@@ -1227,9 +1244,10 @@ if (!doc) {
         desc.putPath(charIDToTypeID('null'), files[i]);
         desc.putEnumerated(charIDToTypeID('FTcs'), charIDToTypeID('QCSt'), charIDToTypeID('Qcsa'));
         executeAction(idPlc, desc, DialogModes.NO);
+        fixName(files[i], names[i]);
     }
 }
-)JSX").arg(files_array);
+)JSX").arg(files_array, names_array);
 
         QString jsx_path = QDir::tempPath() + "/lape_place.jsx";
         QFile jsx_file(jsx_path);
@@ -1782,6 +1800,39 @@ void MainWindow::load_settings() {
     if (active < m_tabs->count()) m_tabs->setCurrentIndex(active);
 }
 
-void MainWindow::closeEvent(QCloseEvent* e) { save_settings(); e->accept(); }
+void MainWindow::closeEvent(QCloseEvent* e) {
+    // Sprawdź czy są inne okna MainWindow
+    QList<MainWindow*> other_windows;
+    for (QWidget* w : QApplication::topLevelWidgets()) {
+        auto* mw = qobject_cast<MainWindow*>(w);
+        if (mw && mw != this && mw->isVisible())
+            other_windows << mw;
+    }
+
+    if (!other_windows.isEmpty()) {
+        QMessageBox msg(this);
+        msg.setWindowTitle("Zamknij okno");
+        msg.setText("Co chcesz zrobić z tym oknem?");
+        auto* btn_close  = msg.addButton("Zamknij okno",    QMessageBox::DestructiveRole);
+        auto* btn_merge  = msg.addButton("Przenieś jako zakładkę", QMessageBox::AcceptRole);
+        auto* btn_cancel = msg.addButton("Anuluj",          QMessageBox::RejectRole);
+        msg.setDefaultButton(btn_close);
+        msg.exec();
+
+        if (msg.clickedButton() == btn_cancel) {
+            e->ignore();
+            return;
+        }
+        if (msg.clickedButton() == btn_merge) {
+            e->ignore();
+            action_merge_to_other_window();
+            return;
+        }
+        // btn_close — zamknij normalnie
+    }
+
+    save_settings();
+    e->accept();
+}
 
 } // namespace LapesEye
