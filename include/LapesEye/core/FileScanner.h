@@ -29,6 +29,8 @@ public:
     static bool is_supported(const QString& path);
     static bool is_raw(const QString& path);
     static bool is_psd(const QString& path);
+    // Wpis dla pojedynczego pliku (np. nowo utworzonego przez inny program)
+    static ScannedFile file_entry(const QString& path);
 
     // Skanuj: najpierw foldery (posortowane), potem pliki (posortowane)
     QList<ScannedFile> scan_sync(const QString& dir_path, bool recursive = false);
