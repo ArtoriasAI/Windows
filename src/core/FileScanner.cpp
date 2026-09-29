@@ -71,6 +71,10 @@ ScannedFile FileScanner::make_file_entry(const QFileInfo& fi) {
     return f;
 }
 
+ScannedFile FileScanner::file_entry(const QString& path) {
+    return make_file_entry(QFileInfo(path));
+}
+
 QList<ScannedFile> FileScanner::scan_sync(const QString& dir_path, bool recursive) {
     QList<ScannedFile> dirs, files;
 
