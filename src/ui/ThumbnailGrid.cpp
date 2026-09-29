@@ -319,7 +319,7 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
     m_fs_watcher = new QFileSystemWatcher(this);
     QObject::connect(m_fs_watcher, &QFileSystemWatcher::directoryChanged,
                      this, [this](const QString& dir) {
-        if (dir != m_current_dir) return;
+        if (QDir::cleanPath(dir) != QDir::cleanPath(m_current_dir)) return;
         // Folder się zmienił — sprawdź które pliki zniknęły
         // Uwaga: pomiń jeśli to rename (m_all_files już ma nową ścieżkę dla tego pliku)
         QSet<QString> current_on_disk;
@@ -338,7 +338,49 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
             qDebug() << "[Lape] fs_watcher: zniknęło" << missing.size() << "plików";
             remove_items_in_place(missing);
         }
+
+        // Nowe pliki (np. zapisane w Photoshopie) — dodaj po krótkim opóźnieniu,
+        // żeby program zapisujący zdążył skończyć zapis pliku
+        m_fs_add_retry = 0;
+        if (!m_fs_add_timer) {
+            m_fs_add_timer = new QTimer(this);
+            m_fs_add_timer->setSingleShot(true);
+            m_fs_add_timer->setInterval(500);
+            QObject::connect(m_fs_add_timer, &QTimer::timeout,
+                             this, &ThumbnailGrid::add_new_files_from_disk);
+        }
+        m_fs_add_timer->start();
     });
+}
+
+void ThumbnailGrid::add_new_files_from_disk() {
+    if (m_collection_mode || m_current_dir.isEmpty()) return;
+
+    QSet<QString> known;
+    for (const auto& f : m_all_files) known.insert(f.path);
+
+    const QDateTime now = QDateTime::currentDateTime();
+    QList<ScannedFile> added;
+    bool too_fresh = false;
+    const auto infos = QDir(m_current_dir).entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
+    for (const QFileInfo& fi : infos) {
+        const QString p = fi.absoluteFilePath();
+        if (known.contains(p) || !FileScanner::is_supported(p)) continue;
+        // Plik jeszcze się zapisuje — sprawdź ponownie za chwilę
+        if (fi.size() == 0 || fi.lastModified().msecsTo(now) < 400) { too_fresh = true; continue; }
+        added << FileScanner::file_entry(p);
+    }
+
+    if (too_fresh && m_fs_add_retry < 20 && m_fs_add_timer) {
+        ++m_fs_add_retry;
+        m_fs_add_timer->start();
+    }
+    if (added.isEmpty()) return;
+
+    for (const auto& a : added) m_all_files.append(a);
+    qDebug() << "[Lape] fs_watcher: nowych plików" << added.size();
+    if (m_empty_cover) m_empty_cover->hide();
+    apply_filter_and_rebuild();  // sortowanie i filtr — nowe pliki trafiają na właściwe miejsce
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -780,6 +822,25 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
 void ThumbnailGrid::set_filter(const GridFilter& f) {
     m_filter = f;
     apply_filter_and_rebuild();
+    scroll_primary_into_view();  // np. Wybrane → Wszystkie: widok ma zostać przy zaznaczonym zdjęciu
+}
+
+void ThumbnailGrid::scroll_primary_into_view() {
+    if (m_primary.isEmpty() || !m_canvas || !m_scroll) return;
+    // Odroczone: wysokość canvasa i zakres paska przewijania muszą się najpierw przeliczyć
+    QTimer::singleShot(0, this, [this]() {
+        int idx = -1;
+        for (int i = 0; i < m_visible.size(); ++i)
+            if (m_visible[i].path == m_primary) { idx = i; break; }
+        if (idx < 0 || !m_canvas) return;
+        QRect r  = m_canvas->item_rect(idx);
+        int sv   = m_scroll->verticalScrollBar()->value();
+        int vp_h = m_scroll->viewport()->height();
+        if (r.top() >= sv && r.bottom() <= sv + vp_h) return;  // już w pełni widoczne
+        int center_sv = r.top() + r.height() / 2 - vp_h / 2;
+        m_scroll->verticalScrollBar()->setValue(qMax(0, center_sv));
+        QTimer::singleShot(30, this, &ThumbnailGrid::request_visible_thumbs);
+    });
 }
 
 bool ThumbnailGrid::passes_filter(const ScannedFile& f) const {
@@ -877,6 +938,13 @@ void ThumbnailGrid::invalidate_meta_cache(const QString& path) {
 
 void ThumbnailGrid::apply_filter_and_rebuild() {
     PERF_SCOPE("apply_filter_and_rebuild");
+    // Pozycja zaznaczonego zdjęcia w liście PRZED przebudową (do nawigacji strzałkami,
+    // gdy to zdjęcie zniknie z filtra, np. odznaczone w widoku „Wybrane")
+    int old_primary_idx = -1;
+    if (!m_primary.isEmpty()) {
+        for (int i = 0; i < m_visible.size(); ++i)
+            if (m_visible[i].path == m_primary) { old_primary_idx = i; break; }
+    }
     m_visible.clear();
     for (const auto& f : m_all_files)
         if (passes_filter(f)) m_visible.append(f);
@@ -939,6 +1007,17 @@ void ThumbnailGrid::apply_filter_and_rebuild() {
 
     virt_update_visible_rows();
     QTimer::singleShot(30, this, &ThumbnailGrid::request_visible_thumbs);
+
+    // Czy zaznaczone zdjęcie zniknęło z widoku? Jeśli tak — zapamiętaj gdzie było.
+    if (m_primary.isEmpty()) {
+        m_nav_anchor_idx = -1;
+    } else if (old_primary_idx >= 0) {
+        bool still_visible = false;
+        for (const auto& f : m_visible)
+            if (f.path == m_primary) { still_visible = true; break; }
+        m_nav_anchor_idx = still_visible ? -1 : old_primary_idx;
+    }
+    // (gdy zdjęcie było już wcześniej ukryte — zostaje poprzednia pozycja)
 
     if (m_scroll->viewport()->width() < 10) {
         m_pending_rebuild = true;
@@ -1825,6 +1904,7 @@ void ThumbnailGrid::navigate_to_index(int idx) {
     m_selected.clear();
     m_selected.insert(path);
     m_primary = path;
+    m_nav_anchor_idx = -1;
     if (m_canvas) m_canvas->set_selected(m_selected);
 
     // Przewijanie: zależnie od rozmiaru kafelka
@@ -1879,10 +1959,25 @@ void ThumbnailGrid::keyPressEvent(QKeyEvent* e) {
     }
 
     int cur = 0;
+    bool primary_found = false;
     for (int i = 0; i < n; ++i)
-        if (m_visible[i].path == m_primary) { cur = i; break; }
+        if (m_visible[i].path == m_primary) { cur = i; primary_found = true; break; }
 
     int cols = m_canvas ? m_canvas->cols() : virt_cols();
+
+    // Zaznaczone zdjęcie zniknęło z filtra (np. odznaczone w „Wybrane") — strzałki
+    // liczymy od jego dawnej pozycji zamiast skakać na początek listy.
+    // Po usunięciu pod indeksem k leży jego następnik.
+    if (!primary_found && m_nav_anchor_idx >= 0) {
+        const int k = m_nav_anchor_idx;
+        switch (e->key()) {
+            case Qt::Key_Right: navigate_to_index(k);            e->accept(); return;
+            case Qt::Key_Left:  navigate_to_index(k - 1);        e->accept(); return;
+            case Qt::Key_Down:  navigate_to_index(k + cols - 1); e->accept(); return;
+            case Qt::Key_Up:    navigate_to_index(k - cols);     e->accept(); return;
+            default: break;
+        }
+    }
 
     switch (e->key()) {
         case Qt::Key_Right:  navigate_to_index(cur + 1);    break;
