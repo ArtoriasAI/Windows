@@ -219,6 +219,7 @@ private:
     bool                          m_collection_mode = false;
     bool                          m_pending_rebuild = false;
     mutable QMap<QString, FileMetadata> m_meta_cache;
+    QSet<QString> m_meta_loading;  // ścieżki, dla których trwa wczytywanie metadanych (tylko wątek GUI)
     static constexpr int META_CACHE_MAX = 500;  // max wpisów w cache
 
     // ─── Wirtualna siatka — stan ─────────────────────────────────────────────
