@@ -187,6 +187,7 @@ private:
 
     // ─── Pozostałe prywatne ──────────────────────────────────────────────────
     void navigate_to_index(int idx);
+    void scroll_primary_into_view();  // po zmianie filtra: pokaż zaznaczone zdjęcie
     void rebuild_layout();                // alias dla virt_full_rebuild (kompatybilność)
     void sync_canvas();                   // synchronizuje m_visible → ThumbnailCanvas
     QString dir_at(const QPoint& pos_in_grid) const;  // folder pod pozycją kursorą
@@ -228,6 +229,7 @@ private:
     // m_pool zawiera wolne widgety do reużycia (nie delete, recykling)
     QList<ThumbnailItem*>         m_pool;
     int                           m_virt_first_visible_row = -1;
+    int                           m_nav_anchor_idx = -1;  // dawna pozycja zdjęcia, które zniknęło z filtra (-1 = brak)
     int                           m_virt_last_visible_row  = -1;
 
     // ─── Timery ──────────────────────────────────────────────────────────────
