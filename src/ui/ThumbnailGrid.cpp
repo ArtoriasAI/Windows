@@ -522,9 +522,12 @@ void ThumbnailGrid::sync_canvas() {
     // Tylko foldery których nie ma w cache (nie blokuje UI)
     // Zbierz pliki bez metadanych w cache
     QStringList files_to_load;
-    for (const auto& f : m_visible)
-        if (!m_meta_cache.contains(f.path))
-            files_to_load << f.path;
+    for (const auto& f : m_visible) {
+        if (m_meta_cache.contains(f.path)) continue;
+        if (m_meta_loading.contains(f.path)) continue;  // już w trakcie — bez dubli
+        m_meta_loading.insert(f.path);
+        files_to_load << f.path;
+    }
 
     if (!files_to_load.isEmpty()) {
         auto fut = QtConcurrent::run([this, files_to_load]() {
@@ -538,11 +541,13 @@ void ThumbnailGrid::sync_canvas() {
                     FileMetadata meta = MetaStore::load(path);
                     if (meta.color_label != ColorLabel::None || meta.rating > 0) {
                         QMetaObject::invokeMethod(this, [this, path, meta]() {
+                            m_meta_loading.remove(path);
                             m_meta_cache[path] = meta;
                             if (m_canvas) m_canvas->set_metadata(path, meta);
                         }, Qt::QueuedConnection);
                     } else {
                         QMetaObject::invokeMethod(this, [this, path, meta]() {
+                            m_meta_loading.remove(path);
                             m_meta_cache[path] = meta;
                         }, Qt::QueuedConnection);
                     }
@@ -976,6 +981,7 @@ void ThumbnailGrid::apply_thumb_size_now(int size) {
 }
 
 void ThumbnailGrid::do_zoom_rebuild() {
+    PERF_SCOPE("do_zoom_rebuild");
     QString anchor = m_primary;
     if (anchor.isEmpty() && !m_selected.isEmpty())
         anchor = *m_selected.begin();
@@ -1002,8 +1008,18 @@ void ThumbnailGrid::do_zoom_rebuild() {
     int h = _th > 0 ? _th : 1;
     m_container->resize(w, h);
 
-    // Najpierw przebuduj widok, potem przewiń do zaznaczonego
-    virt_update_visible_rows();
+    // Lista plików się nie zmienia — wystarczy nowy rozmiar kafelka i wysokość canvasa.
+    // (Pełny sync_canvas kopiował metadane wszystkich plików przy każdym kroku zoomu.)
+    if (m_visible.isEmpty()) {
+        virt_update_visible_rows();
+    } else if (m_canvas) {
+        int cw = m_scroll->viewport()->width();
+        if (cw < 10) cw = 800;
+        m_canvas->set_explicit_width(cw);
+        m_canvas->setFixedWidth(cw);
+        m_canvas->set_thumb_size(m_thumb_size);  // przelicza wysokość i odświeża
+        m_canvas->update();
+    }
 
     if (!anchor.isEmpty()) {
         int target_idx = -1;
