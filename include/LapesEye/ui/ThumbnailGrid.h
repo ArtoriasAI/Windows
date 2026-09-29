@@ -110,6 +110,7 @@ public:
     void rename_item(const QString& old_path, const QString& new_name);
     void add_item_in_place(const QString& path);
     void remove_items_in_place(const QStringList& paths);
+    void add_new_files_from_disk();  // dodaje pliki utworzone w folderze przez inne programy
     void copy_selected(bool cut = false);
     void paste_here();
     void duplicate_selected();
@@ -229,6 +230,8 @@ private:
     // m_pool zawiera wolne widgety do reużycia (nie delete, recykling)
     QList<ThumbnailItem*>         m_pool;
     int                           m_virt_first_visible_row = -1;
+    QTimer*                       m_fs_add_timer = nullptr;  // debounce dodawania nowych plików
+    int                           m_fs_add_retry = 0;
     int                           m_nav_anchor_idx = -1;  // dawna pozycja zdjęcia, które zniknęło z filtra (-1 = brak)
     int                           m_virt_last_visible_row  = -1;
 
