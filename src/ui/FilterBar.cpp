@@ -209,7 +209,8 @@ void FilterBar::setup_ui() {
         "Nazwa ↑", "Nazwa ↓",
         "Data ↑",  "Data ↓",
         "Rozmiar ↑","Rozmiar ↓",
-        "Typ ↑"
+        "Typ ↑",
+        "Ręcznie"
     });
     m_sort_combo->setToolTip("Sortowanie");
     m_sort_combo->setMaximumWidth(110);
@@ -267,6 +268,16 @@ void FilterBar::emit_filter() {
                       : SortMode::NameAsc;
 
     emit filter_changed(f);
+}
+
+int FilterBar::sort_mode() const {
+    return m_sort_combo ? m_sort_combo->currentIndex() : 0;
+}
+
+void FilterBar::set_sort_mode(int mode) {
+    if (!m_sort_combo || mode < 0 || mode >= m_sort_combo->count()) return;
+    QSignalBlocker blocker(m_sort_combo);   // bez ponownego wysyłania filtra
+    m_sort_combo->setCurrentIndex(mode);
 }
 
 // ─── Ikony trybów (rysowane programowo) ──────────────────────────────────────
