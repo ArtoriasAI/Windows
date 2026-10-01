@@ -57,6 +57,7 @@ private slots:
     void on_selection_changed(const QStringList& paths);
     void on_open_in_lape(const QString& path);
     void open_in_external_editor(const QStringList& paths, bool as_layer = false);
+    void open_in_camera_raw(const QStringList& paths);  // Alt+E: okno Camera Raw w działającym Photoshopie
     void on_open_as_layer(const QString& path);
     void on_context_menu(const QStringList& paths, const QPoint& pos);
     void on_context_menu_background(const QPoint& pos);
