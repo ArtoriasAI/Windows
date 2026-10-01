@@ -3,6 +3,8 @@
 #include <QPixmapCache>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <climits>
 #include "LapesEye/ui/ThumbnailGrid.h"
 #include "LapesEye/core/PerfTimer.h"
 #include "LapesEye/ui/ThumbnailCanvas.h"
@@ -711,6 +713,7 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
     if (m_empty_cover) m_empty_cover->hide();
 
     m_current_dir = dir_path;
+    load_manual_order();   // ręczna kolejność zapisana dla tego folderu (jeśli jest)
 
     // Wyczyść store pixmap TYLKO gdy to faktycznie nowy folder
     // (guard dir_path == m_current_dir powyżej gwarantuje że tu trafiamy tylko przy zmianie)
@@ -820,9 +823,188 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 void ThumbnailGrid::set_filter(const GridFilter& f) {
+    // Pasek filtrów jest wspólny dla wszystkich zakładek: zmiana sortowania przez użytkownika
+    // to różnica względem ostatnio przysłanego trybu (a nie sam fakt wysłania filtra)
+    const bool sort_touched = (f.sort_mode != m_last_bar_sort);
+    m_last_bar_sort = f.sort_mode;
+    const bool was_manual = (m_filter.sort_mode == SortMode::Manual);
+
     m_filter = f;
+    if (!sort_touched && was_manual && m_manual_forced)
+        m_filter.sort_mode = SortMode::Manual;      // zachowaj ręczną kolejność folderu
+    else if (m_filter.sort_mode == SortMode::Manual) {
+        m_manual_forced = false;                    // wybór użytkownika / echo comboboxa
+        // Folder ma zapisaną kolejność, ale wyłączoną — „Ręcznie" włącza ją z powrotem
+        if (!m_manual_order.isEmpty() && !m_manual_active_saved) save_manual_order(true);
+    }
+    else if (was_manual) {
+        // Użytkownik wybrał inne sortowanie — w tym folderze ręczna kolejność przestaje być aktywna
+        m_manual_forced = false;
+        if (m_manual_active_saved && !m_manual_order.isEmpty()) save_manual_order(false);
+    }
+
     apply_filter_and_rebuild();
     scroll_primary_into_view();  // np. Wybrane → Wszystkie: widok ma zostać przy zaznaczonym zdjęciu
+}
+
+ThumbnailGrid::SortCmp ThumbnailGrid::make_sort_cmp(SortMode mode) const {
+    return [this, mode](const ScannedFile& a, const ScannedFile& b) -> bool {
+        if (a.is_dir != b.is_dir) return a.is_dir > b.is_dir;
+        switch (mode) {
+            case SortMode::NameAsc:  return m_collator.compare(a.name, b.name) < 0;
+            case SortMode::NameDesc: return m_collator.compare(a.name, b.name) > 0;
+            case SortMode::DateAsc:  return a.mtime < b.mtime;
+            case SortMode::DateDesc: return a.mtime > b.mtime;
+            case SortMode::SizeAsc:  return a.size  < b.size;
+            case SortMode::SizeDesc: return a.size  > b.size;
+            case SortMode::TypeAsc: {
+                QString ea = QFileInfo(a.name).suffix().toLower();
+                QString eb = QFileInfo(b.name).suffix().toLower();
+                int ct = ea.compare(eb, Qt::CaseInsensitive);
+                if (ct != 0) return ct < 0;
+                return m_collator.compare(a.name, b.name) < 0;
+            }
+            case SortMode::Manual: {
+                // Pliki spoza zapisanej kolejności (nowe) lądują na końcu, wg nazwy
+                const int ra = m_manual_rank.value(a.name, INT_MAX);
+                const int rb = m_manual_rank.value(b.name, INT_MAX);
+                if (ra != rb) return ra < rb;
+                return m_collator.compare(a.name, b.name) < 0;
+            }
+            default: return m_collator.compare(a.name, b.name) < 0;
+        }
+    };
+}
+
+// ─── Ręczna kolejność: zapis w katalogu danych programu (obok metadanych) ────
+QString ThumbnailGrid::manual_order_path() const {
+    const QString cat = MetaStore::catalog_path(m_current_dir + "/__order__");
+    return (cat.endsWith(".json") ? cat.left(cat.size() - 5) : cat) + ".order";
+}
+
+void ThumbnailGrid::rebuild_manual_rank() {
+    m_manual_rank.clear();
+    for (int i = 0; i < m_manual_order.size(); ++i)
+        m_manual_rank.insert(m_manual_order[i], i);
+}
+
+void ThumbnailGrid::save_manual_order(bool active) {
+    if (m_current_dir.isEmpty() || m_collection_mode) return;
+    QJsonObject o;
+    o["active"] = active;
+    QJsonArray arr;
+    for (const QString& n : m_manual_order) arr.append(n);
+    o["order"] = arr;
+    QFile f(manual_order_path());
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+        m_manual_active_saved = active;
+    }
+}
+
+void ThumbnailGrid::load_manual_order() {
+    m_manual_order.clear();
+    bool active = false;
+    if (!m_current_dir.isEmpty() && !m_collection_mode) {
+        QFile f(manual_order_path());
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+            active = o.value("active").toBool(false);
+            const QJsonArray arr = o.value("order").toArray();
+            for (const auto& v : arr) m_manual_order << v.toString();
+        }
+    }
+    m_manual_active_saved = active;
+    rebuild_manual_rank();
+
+    if (active && !m_manual_order.isEmpty()) {
+        // Ten folder ma zapisaną, aktywną ręczną kolejność — włącz ją automatycznie
+        m_manual_forced = true;
+        if (m_filter.sort_mode != SortMode::Manual) {
+            m_sort_before_manual = m_filter.sort_mode;
+            m_filter.sort_mode   = SortMode::Manual;
+            emit sort_mode_changed(static_cast<int>(SortMode::Manual));
+        }
+    } else if (m_manual_forced) {
+        // Poprzedni folder wymusił tryb ręczny, ten nie ma kolejności — wróć do poprzedniego sortowania
+        m_manual_forced    = false;
+        m_filter.sort_mode = m_sort_before_manual;
+        emit sort_mode_changed(static_cast<int>(m_sort_before_manual));
+    }
+}
+
+void ThumbnailGrid::manual_order_rename(const QString& old_name, const QString& new_name) {
+    const int i = m_manual_order.indexOf(old_name);
+    if (i < 0) return;
+    m_manual_order[i] = new_name;
+    rebuild_manual_rank();
+    save_manual_order(m_manual_active_saved);
+}
+
+// Upuszczenie przeciąganych zdjęć w obrębie tego samego folderu → nowa kolejność
+bool ThumbnailGrid::reorder_by_drop(const QPoint& pos_in_grid) {
+    if (!m_canvas || m_collection_mode || m_visible.isEmpty()) return false;
+
+    // Przeciągane pliki (widoczne, w kolejności wyświetlania)
+    QStringList dragged_names;
+    for (const auto& f : m_visible)
+        if (!f.is_dir && m_selected.contains(f.path)) dragged_names << f.name;
+    if (dragged_names.isEmpty()) return false;
+    const QSet<QString> dragged(dragged_names.begin(), dragged_names.end());
+
+    // Pozycja wstawienia: przed pierwszym kafelkiem, który jest „za" punktem upuszczenia
+    const QPoint pc = m_canvas->mapFrom(this, pos_in_grid);
+    int ins = m_visible.size();
+    for (int i = 0; i < m_visible.size(); ++i) {
+        const QRect r = m_canvas->item_rect(i);
+        if (pc.y() < r.top() || (pc.y() <= r.bottom() && pc.x() < r.center().x())) { ins = i; break; }
+    }
+
+    // Pełna aktualna kolejność plików (także ukrytych filtrem), bez folderów
+    QList<ScannedFile> files;
+    for (const auto& f : m_all_files) if (!f.is_dir) files.append(f);
+    std::stable_sort(files.begin(), files.end(), make_sort_cmp(m_filter.sort_mode));
+    QStringList order;
+    for (const auto& f : files) order << f.name;
+
+    QStringList rest;
+    for (const QString& n : order) if (!dragged.contains(n)) rest << n;
+
+    // Punkt odniesienia: pierwszy nieprzeciągany plik na lub za pozycją wstawienia
+    int pos = -1;
+    for (int i = ins; i < m_visible.size(); ++i) {
+        const auto& f = m_visible[i];
+        if (f.is_dir || dragged.contains(f.name)) continue;
+        pos = rest.indexOf(f.name);
+        break;
+    }
+    if (pos < 0) {
+        // Upuszczono za ostatnim widocznym plikiem → wstaw za ostatnim nieprzeciąganym
+        int last = -1;
+        for (int i = m_visible.size() - 1; i >= 0; --i) {
+            const auto& f = m_visible[i];
+            if (!f.is_dir && !dragged.contains(f.name)) { last = rest.indexOf(f.name); break; }
+        }
+        if (last < 0) return true;      // wszystkie widoczne pliki są przeciągane — brak zmiany
+        pos = last + 1;
+    }
+    for (int k = 0; k < dragged_names.size(); ++k)
+        rest.insert(pos + k, dragged_names[k]);
+
+    if (rest == order) return true;     // upuszczono w to samo miejsce
+
+    m_manual_order = rest;
+    rebuild_manual_rank();
+    if (m_filter.sort_mode != SortMode::Manual) m_sort_before_manual = m_filter.sort_mode;
+    m_filter.sort_mode = SortMode::Manual;
+    m_manual_forced    = true;
+    m_last_bar_sort    = SortMode::Manual;
+    save_manual_order(true);
+    emit sort_mode_changed(static_cast<int>(SortMode::Manual));
+
+    apply_filter_and_rebuild();
+    scroll_primary_into_view();
+    return true;
 }
 
 void ThumbnailGrid::scroll_primary_into_view() {
@@ -949,28 +1131,8 @@ void ThumbnailGrid::apply_filter_and_rebuild() {
     for (const auto& f : m_all_files)
         if (passes_filter(f)) m_visible.append(f);
 
-    // Używamy m_collator — zainicjalizowany raz w konstruktorze
-    // Kopia dla wątku (QCollator nie jest thread-safe bez kopii)
-    auto sort_mode = m_filter.sort_mode;
-    auto cmp = [this, sort_mode](const ScannedFile& a, const ScannedFile& b) -> bool {
-        if (a.is_dir != b.is_dir) return a.is_dir > b.is_dir;
-        switch (sort_mode) {
-            case SortMode::NameAsc:  return m_collator.compare(a.name, b.name) < 0;
-            case SortMode::NameDesc: return m_collator.compare(a.name, b.name) > 0;
-            case SortMode::DateAsc:  return a.mtime < b.mtime;
-            case SortMode::DateDesc: return a.mtime > b.mtime;
-            case SortMode::SizeAsc:  return a.size  < b.size;
-            case SortMode::SizeDesc: return a.size  > b.size;
-            case SortMode::TypeAsc: {
-                QString ea = QFileInfo(a.name).suffix().toLower();
-                QString eb = QFileInfo(b.name).suffix().toLower();
-                int ct = ea.compare(eb, Qt::CaseInsensitive);
-                if (ct != 0) return ct < 0;
-                return m_collator.compare(a.name, b.name) < 0;
-            }
-            default: return m_collator.compare(a.name, b.name) < 0;
-        }
-    };
+    // Komparator wg aktualnego trybu (m_collator zainicjalizowany raz w konstruktorze)
+    auto cmp = make_sort_cmp(m_filter.sort_mode);
     // Dla małych folderów (<500) sort na UI wątku — overhead wątku > zysk
     // Dla dużych folderów sort w tle żeby nie blokować UI
     if (m_visible.size() > 500) {
@@ -1437,6 +1599,7 @@ void ThumbnailGrid::on_rename_requested(const QString& old_path,
         if (sf.path == old_path) { sf.path = new_path; sf.name = new_name; break; }
     for (auto& sf : m_visible)
         if (sf.path == old_path) { sf.path = new_path; sf.name = new_name; break; }
+    manual_order_rename(fi.fileName(), new_name);
 
     if (m_selected.remove(old_path)) m_selected.insert(new_path);
     if (m_primary == old_path) m_primary = new_path;
@@ -1716,11 +1879,16 @@ void ThumbnailGrid::dragMoveEvent(QDragMoveEvent* e) {
     QString dir_under = dir_at(e->position().toPoint());
 
     if (e->source() == this) {
-        // Wewnętrzny drag — akceptuj tylko gdy jest nad folderem który nie jest zaznaczony
-        if (!dir_under.isEmpty() && !m_selected.contains(dir_under))
+        // Wewnętrzny drag: nad folderem (nie zaznaczonym) → przeniesienie do folderu;
+        // w pozostałych miejscach → zmiana kolejności zdjęć w tym folderze (sortowanie ręczne)
+        if (!dir_under.isEmpty()) {
+            if (!m_selected.contains(dir_under)) e->acceptProposedAction();
+            else                                  e->ignore();
+        } else if (!m_collection_mode) {
             e->acceptProposedAction();
-        else
+        } else {
             e->ignore();
+        }
     } else {
         e->acceptProposedAction();
     }
@@ -1731,7 +1899,18 @@ void ThumbnailGrid::dropEvent(QDropEvent* e) {
 
     QString dest_dir = dir_at(e->position().toPoint());
     if (e->source() == this) {
-        if (dest_dir.isEmpty()) { e->ignore(); return; }
+        if (dest_dir.isEmpty()) {
+            // Upuszczenie w obrębie tego samego folderu → zmiana kolejności (sortowanie ręczne)
+            if (reorder_by_drop(e->position().toPoint())) {
+                m_internal_reorder = true;   // żeby koniec dragu nie usunął zdjęć z widoku
+                e->acceptProposedAction();
+            } else {
+                e->ignore();
+            }
+            m_scroll->viewport()->repaint();
+            repaint();
+            return;
+        }
     }
     if (dest_dir.isEmpty()) dest_dir = m_current_dir;
 
@@ -1755,13 +1934,17 @@ void ThumbnailGrid::dropEvent(QDropEvent* e) {
         } else {
             if (dest_dir == m_current_dir) {
                 for (const QString& dst : moved_dst) add_item_in_place(dst);
-                auto cmp = [this](const ScannedFile& a, const ScannedFile& b) {
-                    if (a.is_dir != b.is_dir) return a.is_dir > b.is_dir;
-                    return m_collator.compare(a.name, b.name) < 0;
-                };
-                std::sort(m_all_files.begin(), m_all_files.end(), cmp);
-                std::sort(m_visible.begin(),   m_visible.end(),   cmp);
-                virt_full_rebuild();
+                if (m_filter.sort_mode == SortMode::Manual) {
+                    apply_filter_and_rebuild();   // nowe pliki trafiają na koniec ręcznej kolejności
+                } else {
+                    auto cmp = [this](const ScannedFile& a, const ScannedFile& b) {
+                        if (a.is_dir != b.is_dir) return a.is_dir > b.is_dir;
+                        return m_collator.compare(a.name, b.name) < 0;
+                    };
+                    std::sort(m_all_files.begin(), m_all_files.end(), cmp);
+                    std::sort(m_visible.begin(),   m_visible.end(),   cmp);
+                    virt_full_rebuild();
+                }
             }
             // Powiadom źródłowe okno (i wszystkie inne) że pliki zostały przeniesione
             const auto topWidgets = QApplication::topLevelWidgets();
@@ -2118,6 +2301,7 @@ void ThumbnailGrid::rename_item(const QString& old_path, const QString& new_name
     };
     update_sf(m_all_files);
     update_sf(m_visible);
+    if (!fi.isDir()) manual_order_rename(fi.fileName(), new_name);
 
     // Stara struktura m_items (child widgety)
     if (m_items.contains(old_path)) {
@@ -2537,7 +2721,10 @@ void ThumbnailGrid::start_drag_selected() {
 
     if (m_fs_watcher) m_fs_watcher->blockSignals(true);
 
+    m_internal_reorder = false;
     Qt::DropAction result = drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::MoveAction);
+    const bool reordered = m_internal_reorder;   // drop = zmiana kolejności, nie przeniesienie
+    m_internal_reorder = false;
 
     if (m_fs_watcher) m_fs_watcher->blockSignals(false);
 
@@ -2548,7 +2735,7 @@ void ThumbnailGrid::start_drag_selected() {
     if (m_canvas) m_canvas->set_drag_active(false);
     if (m_overlay) { m_overlay->hide_rect(); m_overlay->hide(); }
 
-    if (result == Qt::MoveAction) {
+    if (result == Qt::MoveAction && !reordered) {
         m_selected.clear();
         m_primary.clear();
         remove_items_in_place(dragged_paths);
