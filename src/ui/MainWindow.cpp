@@ -784,6 +784,11 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
                          m_meta_panel->set_file_count(loaded, total);
                      });
     QObject::connect(m_filter_bar, &FilterBar::filter_changed, grid, &ThumbnailGrid::set_filter);
+    // Siatka sama przełączyła sortowanie (ręczna kolejność folderu) → pokaż to w comboboxie
+    QObject::connect(grid, &ThumbnailGrid::sort_mode_changed, this,
+                     [this, grid](int mode) {
+                         if (grid == current_grid() && m_filter_bar) m_filter_bar->set_sort_mode(mode);
+                     });
     QObject::connect(m_filter_bar, &FilterBar::view_mode_changed,
                      this, &MainWindow::on_view_mode_changed);
     QObject::connect(m_filter_bar, &FilterBar::advanced_search_requested,
@@ -848,6 +853,14 @@ void MainWindow::on_tab_changed(int index) {
     m_current_dir = path;
     if (m_status_path) m_status_path->setText(path);
     setWindowTitle(path.isEmpty() ? "Lape's Eye" : "Lape's Eye — " + path);
+
+    // Combobox sortowania jest wspólny — przy trybie ręcznym pokaż stan tej zakładki
+    if (m_filter_bar) {
+        const int gm = static_cast<int>(grid->current_filter().sort_mode);
+        const int bm = m_filter_bar->sort_mode();
+        const int manual = static_cast<int>(SortMode::Manual);
+        if ((gm == manual || bm == manual) && gm != bm) m_filter_bar->set_sort_mode(gm);
+    }
 
     update_nav_buttons();
     // Użyj timera — QTabBar jeszcze przetwarza kliknięcie, bezpośredni setFocus()
