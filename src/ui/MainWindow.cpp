@@ -592,7 +592,7 @@ void MainWindow::setup_menu() {
     nav_menu->addAction("Wstecz",  QKeySequence("Alt+Left"),  this, &MainWindow::action_go_back);
     nav_menu->addAction("Naprzód", QKeySequence("Alt+Right"), this, &MainWindow::action_go_forward);
 
-    auto* edit_menu = menuBar()->addMenu("&Edycja");
+    auto* edit_menu = menuBar()->addMenu("E&dycja");
     edit_menu->addAction("Zmień nazwę [F2]", QKeySequence(Qt::Key_F2), this, [this]() {
         if (auto* g = current_grid()) g->start_rename_selected();
     });
@@ -853,6 +853,13 @@ void MainWindow::on_tab_changed(int index) {
     m_current_dir = path;
     if (m_status_path) m_status_path->setText(path);
     setWindowTitle(path.isEmpty() ? "Lape's Eye" : "Lape's Eye — " + path);
+
+    // Panel folderów po lewej i pasek ścieżki pokazują folder aktywnej zakładki
+    // (zakładki kolekcji pomijamy — nie mają ścieżki folderu)
+    if (!path.isEmpty() && QDir(path).exists()) {
+        if (m_folder_panel) m_folder_panel->set_current_path(path);
+        if (m_breadcrumb)   m_breadcrumb->set_path(path);
+    }
 
     // Combobox sortowania jest wspólny — przy trybie ręcznym pokaż stan tej zakładki
     if (m_filter_bar) {
@@ -1192,6 +1199,10 @@ void MainWindow::update_compare_view() {
     m_compare_view->set_paths(files);
 }
 
+static bool is_photoshop_exe(const QString& editor) {
+    return QFileInfo(editor).fileName().contains("photoshop", Qt::CaseInsensitive);
+}
+
 void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer) {
     if (paths.isEmpty()) return;
 
@@ -1284,7 +1295,7 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
 #ifdef Q_OS_WIN
     // Windows + Photoshop: użyj JSX żeby PS wyświetlał nazwę pliku zamiast pełnej ścieżki
     // (PS przez command line pokazuje pełną ścieżkę jako tytuł dokumentu)
-    {
+    if (is_photoshop_exe(editor)) {
         QStringList jsx_open_files;
         for (const QString& p : paths) {
             QString escaped = p;
@@ -1326,6 +1337,54 @@ void MainWindow::open_in_external_editor(const QStringList& paths, bool as_layer
             QString("Nie udało się uruchomić:\n%1\n\n"
                     "Sprawdź ścieżkę w Narzędzia → Ustawienia.").arg(editor));
     }
+}
+
+// ─── Camera Raw: zdjęcie otwiera się w oknie Camera Raw działającego Photoshopa ───
+// „Gotowe" w oknie Camera Raw zapisuje ustawienia (XMP) i zamyka okno — zdjęcie nie trafia do Photoshopa.
+void MainWindow::open_in_camera_raw(const QStringList& paths) {
+    if (paths.isEmpty()) return;
+#ifdef Q_OS_WIN
+    const QString editor = SettingsDialog::external_editor_path().trimmed();
+    if (editor.isEmpty() || !is_photoshop_exe(editor)) {
+        QMessageBox::information(this, "Camera Raw",
+            "Camera Raw działa tylko wewnątrz Photoshopa.\n"
+            "Ustaw Photoshopa jako zewnętrzny edytor: Narzędzia → Ustawienia → Zewnętrzny edytor.");
+        return;
+    }
+
+    QStringList jsx_files;
+    for (const QString& p : paths) {
+        QString escaped = p;
+        escaped.replace(QString("\\"), QString("/"));
+        jsx_files << (QString("File(\"") + escaped + QString("\")"));
+    }
+
+    QString jsx;
+    jsx += "var files = [" + jsx_files.join(QString(",")) + "];\n";
+    jsx += "function isRaw(f) { return /\\.(arw|cr2|cr3|nef|nrw|orf|raf|rw2|dng|pef|srw|x3f|srf|sr2|3fr|erf|kdc|mef|mos|mrw|raw|rwl|iiq)$/i.test(f.name); }\n";
+    jsx += "for (var i = 0; i < files.length; i++) {\n";
+    jsx += "    try {\n";
+    jsx += "        if (isRaw(files[i])) {\n";
+    jsx += "            app.open(files[i]);\n";                       // RAW: okno Camera Raw
+    jsx += "        } else {\n";
+    jsx += "            var d = new ActionDescriptor();\n";           // JPG/TIFF: Otwórz jako Camera Raw
+    jsx += "            d.putPath(charIDToTypeID('null'), files[i]);\n";
+    jsx += "            d.putClass(charIDToTypeID('As  '), charIDToTypeID('CRaw'));\n";
+    jsx += "            executeAction(charIDToTypeID('Opn '), d, DialogModes.NO);\n";
+    jsx += "        }\n";
+    jsx += "    } catch (e) { }\n";                                   // Anuluj / Gotowe w oknie Camera Raw
+    jsx += "}\n";
+
+    const QString jsx_path = QDir::tempPath() + "/lape_camera_raw.jsx";
+    QFile jsx_file(jsx_path);
+    if (!jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    jsx_file.write(jsx.toUtf8());
+    jsx_file.close();
+    QProcess::startDetached(editor, {"-r", jsx_path});
+#else
+    QMessageBox::information(this, "Camera Raw",
+        "Camera Raw jest dostępny tylko w wersji dla Windows (wymaga Photoshopa).");
+#endif
 }
 
 void MainWindow::on_open_in_lape(const QString& path) {
@@ -1761,8 +1820,19 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
                 e->accept(); return;
             }
         }
+        // Alt+E — otwórz w oknie Camera Raw (Photoshop musi działać)
+        if (e->key() == Qt::Key_E && (e->modifiers() & Qt::AltModifier)) {
+            auto* g = current_grid();
+            if (g) {
+                QStringList paths = g->selected_paths_ordered();
+                if (paths.isEmpty() && !g->primary_path().isEmpty())
+                    paths << g->primary_path();
+                open_in_camera_raw(paths);
+                e->accept(); return;
+            }
+        }
         // E — otwórz w zewnętrznym edytorze
-        if (e->key() == Qt::Key_E && !(e->modifiers() & Qt::ShiftModifier)) {
+        if (e->key() == Qt::Key_E && !(e->modifiers() & (Qt::ShiftModifier | Qt::AltModifier))) {
             auto* g = current_grid();
             if (g) {
                 QStringList paths = g->selected_paths_ordered();
