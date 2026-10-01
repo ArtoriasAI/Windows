@@ -44,6 +44,8 @@ private:
 
 public:
     QSlider* thumb_slider() const { return m_thumb_slider; }
+    int  sort_mode() const;              // indeks trybu sortowania (SortMode)
+    void set_sort_mode(int mode);        // ustaw combobox bez emitowania filtra
     QLineEdit*   m_search      = nullptr;
     QComboBox*   m_sort_combo  = nullptr;
 
