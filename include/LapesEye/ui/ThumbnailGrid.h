@@ -10,6 +10,8 @@
 #include <QDate>
 #include <QShowEvent>
 #include <QMap>
+#include <QHash>
+#include <functional>
 #include <QSet>
 #include <QList>
 #include <QTimer>
@@ -30,6 +32,7 @@ enum class SortMode {
     SizeAsc,
     SizeDesc,
     TypeAsc,
+    Manual,   // ręczna kolejność (przeciąganie), zapamiętywana per folder
 };
 
 struct GridFilter {
@@ -130,6 +133,7 @@ signals:
     // Emitowany z wątku tła po zakończeniu rename na dysku
     void rename_completed(const QString& old_path, const QString& new_path);
     void watcher_unblock();
+    void sort_mode_changed(int mode);  // siatka sama zmieniła tryb sortowania (ręczna kolejność)
     void scan_finished();
     void fullscreen_requested(const QStringList& paths, int index);
     void thumb_progress(int loaded, int total);
@@ -232,6 +236,22 @@ private:
     int                           m_virt_first_visible_row = -1;
     QTimer*                       m_fs_add_timer = nullptr;  // debounce dodawania nowych plików
     int                           m_fs_add_retry = 0;
+    // ── Ręczna kolejność zdjęć (przeciąganie w obrębie folderu) ──
+    using SortCmp = std::function<bool(const ScannedFile&, const ScannedFile&)>;
+    SortCmp make_sort_cmp(SortMode mode) const;
+    QString manual_order_path() const;
+    void    load_manual_order();                       // wczytaj zapis dla m_current_dir
+    void    save_manual_order(bool active);
+    void    rebuild_manual_rank();
+    void    manual_order_rename(const QString& old_name, const QString& new_name);
+    bool    reorder_by_drop(const QPoint& pos_in_grid); // true = obsłużono (nawet bez zmian)
+    QStringList          m_manual_order;                 // nazwy plików w ręcznej kolejności
+    QHash<QString, int>  m_manual_rank;                  // nazwa → pozycja
+    bool     m_manual_active_saved = false;              // flaga „active" zapisana na dysku
+    bool     m_manual_forced       = false;              // ręczny tryb wymuszony zapisem folderu
+    bool     m_internal_reorder    = false;              // drop był zmianą kolejności (nie przeniesieniem)
+    SortMode m_sort_before_manual  = SortMode::NameAsc;  // do przywrócenia po wyjściu z folderu
+    SortMode m_last_bar_sort       = SortMode::NameAsc;  // ostatni tryb przysłany z paska filtrów
     int                           m_nav_anchor_idx = -1;  // dawna pozycja zdjęcia, które zniknęło z filtra (-1 = brak)
     int                           m_virt_last_visible_row  = -1;
 
