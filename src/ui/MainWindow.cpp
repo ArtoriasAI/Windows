@@ -1352,43 +1352,42 @@ void MainWindow::open_in_camera_raw(const QStringList& paths) {
         return;
     }
 
-    QStringList jsx_files;
-    for (const QString& p : paths) {
-        QString escaped = p;
-        escaped.replace(QString("\\"), QString("/"));
-        jsx_files << (QString("File(\"") + escaped + QString("\")"));
+    QStringList raw_paths, other_paths;
+    for (const QString& p : paths)
+        (FileScanner::is_raw(p) ? raw_paths : other_paths) << p;
+
+    // RAW: zwykłe otwarcie pliku przez Photoshopa — tak jak przeciągnięcie pliku na jego okno.
+    // Photoshop pokazuje wtedy okno Camera Raw; „Gotowe" zapisuje ustawienia (XMP) i zamyka okno.
+    if (!raw_paths.isEmpty())
+        QProcess::startDetached(editor, raw_paths);
+
+    // Pozostałe formaty (JPG, TIFF...): próba „Otwórz jako Camera Raw" skryptem (niesprawdzone)
+    if (!other_paths.isEmpty()) {
+        QStringList jsx_files;
+        for (const QString& p : other_paths) {
+            QString escaped = p;
+            escaped.replace(QString("\\"), QString("/"));
+            jsx_files << (QString("File(\"") + escaped + QString("\")"));
+        }
+        QString jsx;
+        jsx += "var files = [" + jsx_files.join(QString(",")) + "];\n";
+        jsx += "for (var i = 0; i < files.length; i++) {\n";
+        jsx += "    try {\n";
+        jsx += "        var d = new ActionDescriptor();\n";
+        jsx += "        d.putPath(charIDToTypeID('null'), files[i]);\n";
+        jsx += "        d.putClass(charIDToTypeID('As  '), charIDToTypeID('CRaw'));\n";
+        jsx += "        executeAction(charIDToTypeID('Opn '), d, DialogModes.NO);\n";
+        jsx += "    } catch (e) { }\n";
+        jsx += "}\n";
+
+        const QString jsx_path = QDir::tempPath() + "/lape_camera_raw.jsx";
+        QFile jsx_file(jsx_path);
+        if (jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            jsx_file.write(jsx.toUtf8());
+            jsx_file.close();
+            QProcess::startDetached(editor, {"-r", jsx_path});
+        }
     }
-
-    QString jsx;
-    jsx += "var files = [" + jsx_files.join(QString(",")) + "];\n";
-    jsx += "function isRaw(f) { return /\\.(arw|cr2|cr3|nef|nrw|orf|raf|rw2|dng|pef|srw|x3f|srf|sr2|3fr|erf|kdc|mef|mos|mrw|raw|rwl|iiq)$/i.test(f.name); }\n";
-    // Tryb okien jest ustawieniem CAŁEGO Photoshopa — zawsze przywracamy go na końcu,
-    // żeby nie wpływał na kolejne skrypty (E, Shift+E)
-    jsx += "var prevDialogs = app.displayDialogs;\n";
-    jsx += "app.displayDialogs = DialogModes.ALL;\n";               // pokaż okno Camera Raw
-    jsx += "try {\n";
-    jsx += "    for (var i = 0; i < files.length; i++) {\n";
-    jsx += "        try {\n";
-    jsx += "            if (isRaw(files[i])) {\n";
-    jsx += "                app.open(files[i]);\n";                   // RAW: okno Camera Raw
-    jsx += "            } else {\n";
-    jsx += "                var d = new ActionDescriptor();\n";       // JPG/TIFF: Otwórz jako Camera Raw
-    jsx += "                d.putPath(charIDToTypeID('null'), files[i]);\n";
-    jsx += "                d.putClass(charIDToTypeID('As  '), charIDToTypeID('CRaw'));\n";
-    jsx += "                executeAction(charIDToTypeID('Opn '), d, DialogModes.NO);\n";
-    jsx += "            }\n";
-    jsx += "        } catch (e) { }\n";                               // Anuluj / Gotowe w oknie Camera Raw
-    jsx += "    }\n";
-    jsx += "} finally {\n";
-    jsx += "    app.displayDialogs = prevDialogs;\n";
-    jsx += "}\n";
-
-    const QString jsx_path = QDir::tempPath() + "/lape_camera_raw.jsx";
-    QFile jsx_file(jsx_path);
-    if (!jsx_file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-    jsx_file.write(jsx.toUtf8());
-    jsx_file.close();
-    QProcess::startDetached(editor, {"-r", jsx_path});
     statusBar()->showMessage(QString("Camera Raw: %1").arg(QFileInfo(paths.first()).fileName()), 4000);
 #else
     QMessageBox::information(this, "Camera Raw",
