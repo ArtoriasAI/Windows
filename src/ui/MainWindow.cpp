@@ -1361,21 +1361,26 @@ void MainWindow::open_in_camera_raw(const QStringList& paths) {
 
     QString jsx;
     jsx += "var files = [" + jsx_files.join(QString(",")) + "];\n";
-    jsx += "app.displayDialogs = DialogModes.ALL;\n";               // pokaż okno Camera Raw także przy otwarciu ze skryptu
     jsx += "function isRaw(f) { return /\\.(arw|cr2|cr3|nef|nrw|orf|raf|rw2|dng|pef|srw|x3f|srf|sr2|3fr|erf|kdc|mef|mos|mrw|raw|rwl|iiq)$/i.test(f.name); }\n";
-    jsx += "for (var i = 0; i < files.length; i++) {\n";
-    jsx += "    try {\n";
-    jsx += "        if (isRaw(files[i])) {\n";
-    jsx += "            var r = new ActionDescriptor();\n";           // RAW: okno Camera Raw
-    jsx += "            r.putPath(charIDToTypeID('null'), files[i]);\n";
-    jsx += "            executeAction(charIDToTypeID('Opn '), r, DialogModes.ALL);\n";
-    jsx += "        } else {\n";
-    jsx += "            var d = new ActionDescriptor();\n";           // JPG/TIFF: Otwórz jako Camera Raw
-    jsx += "            d.putPath(charIDToTypeID('null'), files[i]);\n";
-    jsx += "            d.putClass(charIDToTypeID('As  '), charIDToTypeID('CRaw'));\n";
-    jsx += "            executeAction(charIDToTypeID('Opn '), d, DialogModes.NO);\n";
-    jsx += "        }\n";
-    jsx += "    } catch (e) { }\n";                                   // Anuluj / Gotowe w oknie Camera Raw
+    // Tryb okien jest ustawieniem CAŁEGO Photoshopa — zawsze przywracamy go na końcu,
+    // żeby nie wpływał na kolejne skrypty (E, Shift+E)
+    jsx += "var prevDialogs = app.displayDialogs;\n";
+    jsx += "app.displayDialogs = DialogModes.ALL;\n";               // pokaż okno Camera Raw
+    jsx += "try {\n";
+    jsx += "    for (var i = 0; i < files.length; i++) {\n";
+    jsx += "        try {\n";
+    jsx += "            if (isRaw(files[i])) {\n";
+    jsx += "                app.open(files[i]);\n";                   // RAW: okno Camera Raw
+    jsx += "            } else {\n";
+    jsx += "                var d = new ActionDescriptor();\n";       // JPG/TIFF: Otwórz jako Camera Raw
+    jsx += "                d.putPath(charIDToTypeID('null'), files[i]);\n";
+    jsx += "                d.putClass(charIDToTypeID('As  '), charIDToTypeID('CRaw'));\n";
+    jsx += "                executeAction(charIDToTypeID('Opn '), d, DialogModes.NO);\n";
+    jsx += "            }\n";
+    jsx += "        } catch (e) { }\n";                               // Anuluj / Gotowe w oknie Camera Raw
+    jsx += "    }\n";
+    jsx += "} finally {\n";
+    jsx += "    app.displayDialogs = prevDialogs;\n";
     jsx += "}\n";
 
     const QString jsx_path = QDir::tempPath() + "/lape_camera_raw.jsx";
