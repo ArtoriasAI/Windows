@@ -1361,11 +1361,14 @@ void MainWindow::open_in_camera_raw(const QStringList& paths) {
 
     QString jsx;
     jsx += "var files = [" + jsx_files.join(QString(",")) + "];\n";
+    jsx += "app.displayDialogs = DialogModes.ALL;\n";               // pokaż okno Camera Raw także przy otwarciu ze skryptu
     jsx += "function isRaw(f) { return /\\.(arw|cr2|cr3|nef|nrw|orf|raf|rw2|dng|pef|srw|x3f|srf|sr2|3fr|erf|kdc|mef|mos|mrw|raw|rwl|iiq)$/i.test(f.name); }\n";
     jsx += "for (var i = 0; i < files.length; i++) {\n";
     jsx += "    try {\n";
     jsx += "        if (isRaw(files[i])) {\n";
-    jsx += "            app.open(files[i]);\n";                       // RAW: okno Camera Raw
+    jsx += "            var r = new ActionDescriptor();\n";           // RAW: okno Camera Raw
+    jsx += "            r.putPath(charIDToTypeID('null'), files[i]);\n";
+    jsx += "            executeAction(charIDToTypeID('Opn '), r, DialogModes.ALL);\n";
     jsx += "        } else {\n";
     jsx += "            var d = new ActionDescriptor();\n";           // JPG/TIFF: Otwórz jako Camera Raw
     jsx += "            d.putPath(charIDToTypeID('null'), files[i]);\n";
@@ -1381,6 +1384,7 @@ void MainWindow::open_in_camera_raw(const QStringList& paths) {
     jsx_file.write(jsx.toUtf8());
     jsx_file.close();
     QProcess::startDetached(editor, {"-r", jsx_path});
+    statusBar()->showMessage(QString("Camera Raw: %1").arg(QFileInfo(paths.first()).fileName()), 4000);
 #else
     QMessageBox::information(this, "Camera Raw",
         "Camera Raw jest dostępny tylko w wersji dla Windows (wymaga Photoshopa).");
