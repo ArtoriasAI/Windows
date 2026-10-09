@@ -41,6 +41,27 @@
 #include <QPainter>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
+#include <QDirIterator>
+namespace {
+// Rekurencyjne kopiowanie pliku lub folderu
+bool leye_copy_recursive(const QString& src, const QString& dst) {
+    QFileInfo fi(src);
+    if (!fi.isDir()) return QFile::copy(src, dst);
+    if (!QDir().mkpath(dst)) return false;
+    bool ok = true;
+    const auto entries = QDir(src).entryInfoList(
+        QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+    for (const QFileInfo& e : entries)
+        ok &= leye_copy_recursive(e.absoluteFilePath(), dst + "/" + e.fileName());
+    return ok;
+}
+bool leye_move(const QString& src, const QString& dst) {
+    if (QFile::rename(src, dst)) return true;           // ten sam dysk
+    if (!leye_copy_recursive(src, dst)) return false;   // inny dysk
+    QFileInfo fi(src);
+    return fi.isDir() ? QDir(src).removeRecursively() : QFile::remove(src);
+}
+}
 #include <QFuture>
 #include <QApplication>
 #include <QGuiApplication>
@@ -2401,19 +2422,21 @@ void ThumbnailGrid::copy_selected(bool cut) {
 
 void ThumbnailGrid::paste_here() {
     if (m_current_dir.isEmpty()) return;
-    QStringList sources = m_clipboard_paths;
-    bool is_cut = m_cut_mode;
-    if (sources.isEmpty()) {
+    QStringList sources;
+    bool is_cut = false;
+    {   // Systemowy schowek ma pierwszeństwo (działa między oknami)
         const QMimeData* mime = QApplication::clipboard()->mimeData();
-        if (!mime || !mime->hasUrls()) return;
-        for (const QUrl& u : mime->urls()) {
-            QString local = u.toLocalFile();
-            if (!local.isEmpty()) sources << local;
+        if (mime && mime->hasUrls()) {
+            for (const QUrl& u : mime->urls()) {
+                QString local = u.toLocalFile();
+                if (!local.isEmpty()) sources << local;
+            }
+            QByteArray gnome = mime->data("x-special/gnome-copied-files");
+            is_cut = gnome.startsWith("cut");
+            if (!is_cut) is_cut = (mime->data("application/x-kde-cutselection") == "1");
         }
-        QByteArray gnome = mime->data("x-special/gnome-copied-files");
-        is_cut = gnome.startsWith("cut");
-        if (!is_cut) is_cut = (mime->data("application/x-kde-cutselection") == "1");
     }
+    if (sources.isEmpty()) { sources = m_clipboard_paths; is_cut = m_cut_mode; }
     if (sources.isEmpty()) return;
 
     QStringList added;
@@ -2428,7 +2451,8 @@ void ThumbnailGrid::paste_here() {
                        + (ext.isEmpty() ? "" : "." + ext); }
             while (QFileInfo::exists(dst));
         }
-        if ((is_cut ? QFile::rename(src, dst) : QFile::copy(src, dst)))
+        if (QFileInfo(dst).absoluteFilePath() == QFileInfo(src).absoluteFilePath()) continue;
+        if ((is_cut ? leye_move(src, dst) : leye_copy_recursive(src, dst)))
             added << dst;
     }
     if (added.isEmpty()) return;
