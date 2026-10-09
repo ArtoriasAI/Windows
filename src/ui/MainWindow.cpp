@@ -51,6 +51,7 @@
 #include <QCloseEvent>
 #include <QFileInfo>
 #include <QDir>
+#include <QDirIterator>
 #include <QToolButton>
 #include <QStyle>
 #include <QPixmapCache>
@@ -1601,6 +1602,18 @@ void MainWindow::action_file_info(const QString& path) {
     info += QString("<b>%1</b><br>").arg(fi.fileName());
     info += QString("<br><b>Ścieżka:</b> %1").arg(fi.absolutePath());
     info += QString("<br><b>Typ:</b> %1").arg(fi.isDir() ? "Folder" : fi.suffix().toUpper() + " plik");
+    if (fi.isDir()) {
+        qint64 nfiles = 0, ndirs = 0, total = 0;
+        QDirIterator it(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
+                        QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            const QFileInfo e = it.fileInfo();
+            if (e.isDir()) ++ndirs; else { ++nfiles; total += e.size(); }
+        }
+        info += QString("<br><b>Zawiera:</b> %1 plików, %2 folderów").arg(nfiles).arg(ndirs);
+        info += QString("<br><b>Rozmiar:</b> %1 MB").arg(total / 1024 / 1024);
+    } else
     info += QString("<br><b>Rozmiar:</b> %1").arg(
         fi.isDir() ? "—" :
         fi.size() < 1024*1024
