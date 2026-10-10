@@ -900,12 +900,15 @@ void FullscreenViewer::evict_far_cache() {
         int rel = (idx - m_index) * d;
         return rel >= -PREFETCH_BACK && rel <= PREFETCH_RANGE;
     };
-    for (auto it = m_prefetch_cache.begin(); it != m_prefetch_cache.end();)
-        it = keep(it.key()) ? it + 1 : m_prefetch_cache.erase(it);
-    for (auto it = m_prefetch_full_cache.begin(); it != m_prefetch_full_cache.end();)
-        it = keep(it.key()) ? it + 1 : m_prefetch_full_cache.erase(it);
-    for (auto it = m_prefetch_full_pix_cache.begin(); it != m_prefetch_full_pix_cache.end();)
-        it = keep(it.key()) ? it + 1 : m_prefetch_full_pix_cache.erase(it);
+    for (auto it = m_prefetch_cache.begin(); it != m_prefetch_cache.end();) {
+        if (keep(it.key())) ++it; else it = m_prefetch_cache.erase(it);
+    }
+    for (auto it = m_prefetch_full_cache.begin(); it != m_prefetch_full_cache.end();) {
+        if (keep(it.key())) ++it; else it = m_prefetch_full_cache.erase(it);
+    }
+    for (auto it = m_prefetch_full_pix_cache.begin(); it != m_prefetch_full_pix_cache.end();) {
+        if (keep(it.key())) ++it; else it = m_prefetch_full_pix_cache.erase(it);
+    }
 }
 
 void FullscreenViewer::prefetch_full_neighbors() {
