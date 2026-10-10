@@ -15,6 +15,7 @@
 #include <QPixmapCache>
 #include <QTransform>
 #include <QBuffer>
+#include <QThread>
 #include <QtConcurrent/QtConcurrent>
 #include <QPainter>
 #include <QFileInfo>
@@ -129,6 +130,10 @@ FullscreenViewer::~FullscreenViewer() {
 FullscreenViewer::FullscreenViewer(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
+    {
+        int cores = QThread::idealThreadCount();
+        m_pf_pool.setMaxThreadCount(qBound(2, cores / 2, 4));
+    }
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setStyleSheet("background: black;");
@@ -220,6 +225,8 @@ void FullscreenViewer::show_image(const QStringList& paths, int index) {
     m_pixmap         = QPixmap{};
     m_pixmap_full    = QPixmap{};
     m_loading_pixmap = QPixmap{};
+    m_cur_idx = m_index;
+    m_nav_dir = 1;
     ++m_load_gen;
     ++m_prefetch_gen;
     m_prefetch_cache.clear();
@@ -241,7 +248,10 @@ void FullscreenViewer::navigate(int delta) {
     if (m_paths.isEmpty()) return;
     int new_idx = m_index + delta;
     if (new_idx < 0 || new_idx >= m_paths.size()) return;
+    if (delta != 0) m_nav_dir = delta > 0 ? 1 : -1;
     m_index = new_idx;
+    m_cur_idx = m_index;
+    evict_far_cache();
     m_pixmap_full = QPixmap{};  // stara pełna rozdzielczość nieaktualna
     ++m_load_gen_full;           // anuluj ewentualne ładowanie w tle
     // Zoom zachowany — użytkownik chce przeglądać kolejne zdjęcia z tym samym zoom
@@ -875,6 +885,29 @@ void FullscreenViewer::load_full_resolution() {
 
 
 // ─── Prefetch pełnej jakości sąsiadów (po załadowaniu bieżącego) ─────────────
+// Kolejność priorytetów: +1 w kierunku, -1, +2, +3, +4, -2
+QVector<int> FullscreenViewer::prefetch_offsets() const {
+    const int d = m_nav_dir >= 0 ? 1 : -1;
+    return { d, -d, 2 * d, 3 * d, 4 * d, -2 * d };
+}
+
+// Usuń z cache wpisy poza oknem [-PREFETCH_BACK .. +PREFETCH_RANGE] (w kierunku)
+void FullscreenViewer::evict_far_cache() {
+    const int d = m_nav_dir >= 0 ? 1 : -1;
+    auto keep = [&](const QString& p) {
+        int idx = m_paths.indexOf(p);
+        if (idx < 0) return false;
+        int rel = (idx - m_index) * d;
+        return rel >= -PREFETCH_BACK && rel <= PREFETCH_RANGE;
+    };
+    for (auto it = m_prefetch_cache.begin(); it != m_prefetch_cache.end();)
+        it = keep(it.key()) ? it + 1 : m_prefetch_cache.erase(it);
+    for (auto it = m_prefetch_full_cache.begin(); it != m_prefetch_full_cache.end();)
+        it = keep(it.key()) ? it + 1 : m_prefetch_full_cache.erase(it);
+    for (auto it = m_prefetch_full_pix_cache.begin(); it != m_prefetch_full_pix_cache.end();)
+        it = keep(it.key()) ? it + 1 : m_prefetch_full_pix_cache.erase(it);
+}
+
 void FullscreenViewer::prefetch_full_neighbors() {
     if (m_paths.isEmpty()) return;
     // Nie inkrementujemy m_prefetch_full_gen — to anulowałoby wyniki
@@ -886,7 +919,9 @@ void FullscreenViewer::prefetch_full_neighbors() {
     };
 
     // Prefetchuj tylko bezpośrednich sąsiadów (±1) — pełny decode jest ciężki
-    for (int d : {-1, 1, -2, 2}) {
+    // Pełna jakość tylko dla +1 (w kierunku), -1 i +2 (w kierunku)
+    const int _dir = m_nav_dir >= 0 ? 1 : -1;
+    for (int d : {_dir, -_dir, 2 * _dir}) {
         int idx = m_index + d;
         if (idx < 0 || idx >= m_paths.size()) continue;
         QString path = m_paths[idx];
@@ -904,7 +939,15 @@ void FullscreenViewer::prefetch_full_neighbors() {
         QScreen* _pscr = QGuiApplication::primaryScreen();
         QSize _pscreen_size = _pscr ? _pscr->size() : QSize(2560, 1440);
 
-        [[maybe_unused]] auto f = QtConcurrent::run([this, path, fgen, _pscreen_size]() {
+        const int tidx = idx;
+        [[maybe_unused]] auto f = QtConcurrent::run(&m_pf_pool, [this, path, fgen, _pscreen_size, tidx]() {
+            // Użytkownik poszedł już dalej — nie marnuj CPU
+            if (qAbs(tidx - m_cur_idx.load()) > PREFETCH_RANGE) {
+                QMetaObject::invokeMethod(this, [this, path]() {
+                    m_prefetch_full_in_flight.remove(path);
+                }, Qt::QueuedConnection);
+                return;
+            }
             // Pełny pipeline identyczny jak load_full_resolution
             std::vector<uint8_t> jpeg_lumas;
             {
@@ -1066,8 +1109,8 @@ void FullscreenViewer::prefetch_neighbors() {
     if (m_paths.size() <= 1) return;
 
     // Zbierz indeksy do prefetch (PREFETCH_RANGE w każdą stronę, bez bieżącego)
-    for (int d = 1; d <= PREFETCH_RANGE; ++d) {
-        for (int delta : {+d, -d}) {
+    {
+        for (int delta : prefetch_offsets()) {
             int idx = m_index + delta;
             if (idx < 0 || idx >= m_paths.size()) continue;
             const QString& path = m_paths[idx];
@@ -1079,14 +1122,40 @@ void FullscreenViewer::prefetch_neighbors() {
             QSize screen_size = QGuiApplication::primaryScreen()->size() * 2;
             int pgen = m_prefetch_gen;
 
-            [[maybe_unused]] auto f = QtConcurrent::run([this, path, screen_size, pgen]() {
+            const bool light = qAbs(delta) >= 3;   // dalsi sąsiedzi: tylko wbudowany JPEG
+            const int tidx = idx;
+            [[maybe_unused]] auto f = QtConcurrent::run(&m_pf_pool, [this, path, screen_size, pgen, light, tidx]() {
+                if (qAbs(tidx - m_cur_idx.load()) > PREFETCH_RANGE) {
+                    QMetaObject::invokeMethod(this, [this, path, pgen]() {
+                        if (pgen == m_prefetch_gen) m_prefetch_in_flight.remove(path);
+                    }, Qt::QueuedConnection);
+                    return;
+                }
                 QImage img;
                 static const QSet<QString> raw_exts = {
                     "arw","cr2","cr3","nef","nrw","orf","raf","rw2","dng","pef","srw","x3f"
                 };
                 QString ext = QFileInfo(path).suffix().toLower();
 
-                if (raw_exts.contains(ext)) {
+                if (light && raw_exts.contains(ext)) {
+                    LibRaw rl;
+                    if ((rl.open_file(
+#ifdef Q_OS_WIN
+                reinterpret_cast<const wchar_t*>(path.utf16())
+#else
+                path.toLocal8Bit().constData()
+#endif
+                    )) == LIBRAW_SUCCESS && rl.unpack_thumb() == LIBRAW_SUCCESS) {
+                        libraw_processed_image_t* t = rl.dcraw_make_mem_thumb();
+                        if (t && t->type == LIBRAW_IMAGE_JPEG) {
+                            QByteArray jd(reinterpret_cast<const char*>(t->data), t->data_size);
+                            LibRaw::dcraw_clear_mem(t);
+                            QBuffer buf(&jd); buf.open(QIODevice::ReadOnly);
+                            QImageReader rd(&buf, "JPEG"); rd.setAutoTransform(true);
+                            img = rd.read();
+                        } else if (t) { LibRaw::dcraw_clear_mem(t); }
+                    }
+                } else if (raw_exts.contains(ext)) {
                     // Prefetch: quarter_size RAW z brightness matchingiem
                     // Etap 1: zmierz jasność embedded JPEG
                     std::vector<uint8_t> jpeg_lumas_pf;
