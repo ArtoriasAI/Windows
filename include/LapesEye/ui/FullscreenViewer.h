@@ -20,6 +20,9 @@
 #include <QFuture>
 #include <QHash>
 #include <QSet>
+#include <QThreadPool>
+#include <QVector>
+#include <atomic>
 
 namespace LapesEye {
 
@@ -89,7 +92,14 @@ private:
     QHash<QString, QPixmap> m_prefetch_cache;  // path → gotowy pixmap
     QSet<QString>           m_prefetch_in_flight;  // aktualnie ładowane
     int                     m_prefetch_gen = 0;  // inkrementuj przy show_image → anuluj stare wątki
-    static constexpr int    PREFETCH_RANGE = 2;  // ile sąsiadów w każdą stronę
+    static constexpr int    PREFETCH_RANGE = 4;  // maks. zasięg (w kierunku przeglądania)
+    static constexpr int    PREFETCH_BACK  = 2;  // maks. zasięg wstecz
+    // Prefetch asymetryczny: kierunek ostatniej nawigacji ma priorytet
+    std::atomic<int>        m_cur_idx{0};        // kopia m_index dla wątków roboczych
+    int                     m_nav_dir = 1;       // +1 / -1
+    QThreadPool             m_pf_pool;           // osobna pula — nie dławi load_current
+    QVector<int> prefetch_offsets() const;       // kolejność wg priorytetu
+    void evict_far_cache();
 
     // Zoom / pan — zachowywane między zdjęciami (punkt 4)
     double   m_zoom      = 1.0;
