@@ -451,8 +451,8 @@ void FullscreenViewer::load_current() {
 
     // 1a. Full quality prefetch cache — gotowa pełna jakość, zero ładowania
     if (m_prefetch_full_cache.contains(path)) {
-        QPixmap pix      = m_prefetch_full_cache.take(path);
-        QPixmap pix_full = m_prefetch_full_pix_cache.take(path);
+        QPixmap pix      = m_prefetch_full_cache.value(path);  // value(): zostaje w cache (powrót wstecz)
+        QPixmap pix_full = m_prefetch_full_pix_cache.value(path);
         m_prefetch_full_in_flight.remove(path);
         m_pixmap      = pix;
         m_pixmap_full = pix_full.isNull() ? pix : pix_full;
@@ -466,7 +466,7 @@ void FullscreenViewer::load_current() {
 
     // 1b. Quarter-size prefetch cache — szybki placeholder, doczytaj pełną jakość
     if (m_prefetch_cache.contains(path)) {
-        QPixmap pix = m_prefetch_cache.take(path);
+        QPixmap pix = m_prefetch_cache.value(path);
         m_prefetch_in_flight.remove(path);
         m_pixmap  = pix;
         m_loading = false;
@@ -877,6 +877,13 @@ void FullscreenViewer::load_full_resolution() {
             QPixmap pix      = QPixmap::fromImage(scaled); // GUI thread
             m_pixmap_full  = pix_full;
             m_loading_full = false;
+            {   // zapamiętaj odwiedzone zdjęcie — przyda się przy powrocie (-1/-2)
+                const QString cp = m_paths.value(m_index);
+                if (!cp.isEmpty()) {
+                    m_prefetch_full_cache[cp]     = pix;
+                    m_prefetch_full_pix_cache[cp] = pix_full;
+                }
+            }
             start_fade(pix, 0.07f);  // płynne cross-fade quarter→full ~250ms
             prefetch_full_neighbors();
         }, Qt::QueuedConnection);
@@ -907,7 +914,9 @@ void FullscreenViewer::evict_far_cache() {
         if (keep(it.key())) ++it; else it = m_prefetch_full_cache.erase(it);
     }
     for (auto it = m_prefetch_full_pix_cache.begin(); it != m_prefetch_full_pix_cache.end();) {
-        if (keep(it.key())) ++it; else it = m_prefetch_full_pix_cache.erase(it);
+        // pełna rozdzielczość (duża) tylko dla |odległość| <= 2
+        const int r = (m_paths.indexOf(it.key()) - m_index) * d;
+        if (keep(it.key()) && r >= -2 && r <= 2) ++it; else it = m_prefetch_full_pix_cache.erase(it);
     }
 }
 
