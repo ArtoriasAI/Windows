@@ -1,6 +1,6 @@
 {
   "name": "lapes-eye",
-  "version": "0.5.95",
+  "version": "0.6",
   "dependencies": [
     "exiv2",
     "libraw",
