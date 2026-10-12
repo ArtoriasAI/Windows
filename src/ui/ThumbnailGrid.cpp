@@ -796,6 +796,9 @@ void ThumbnailGrid::load_folder(const QString& dir_path) {
             if (m_loading_label) m_loading_label->hide();
             m_all_files = watcher->result();
             m_thumbs_loaded = 0;
+            // Zsynchronizuj bufor miniatur z folderem (usuń wpisy plików, których już nie ma)
+            if (m_worker && m_worker->cache())
+                m_worker->cache()->purge_folder_async(scan_dir);
             apply_filter_and_rebuild();
             setFocus();
             QTimer::singleShot(0, this, [this, scan_dir]() {
