@@ -109,6 +109,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_thumb_cache  = std::make_unique<ThumbCache>();
     m_thumb_cache->open();
+    m_thumb_cache->set_limit_mb(SettingsDialog::disk_cache_mb());
+    {   // Automatyczne czyszczenie wg ustawień (w tle)
+        QSettings cs("Lape", "LapesEye");
+        const bool on_start = cs.value("cache/clear_on_start", true).toBool();
+        const int  days     = SettingsDialog::cache_clear_days();
+        if (on_start || days > 0)
+            m_thumb_cache->maintenance_async(on_start, days);
+        // Regularny zapis bufora na dysk — nie tylko przy zamknięciu programu
+        auto* cache_flush_timer = new QTimer(this);
+        cache_flush_timer->setInterval(5000);
+        QObject::connect(cache_flush_timer, &QTimer::timeout,
+                         this, [this]() { if (m_thumb_cache) m_thumb_cache->flush(); });
+        cache_flush_timer->start();
+    }
     m_thumb_worker = std::make_unique<ThumbWorker>(m_thumb_cache.get());
     m_fullscreen_viewer = new FullscreenViewer(this);
     // Z/X w fullscreen — przekaż do MetaPanel który zapisze i odświeży grid
@@ -633,15 +647,16 @@ void MainWindow::setup_menu() {
     tools_menu->addAction("⚙  Ustawienia...", QKeySequence("Ctrl+,"), this, [this]() {
         SettingsDialog dlg(this);
         QObject::connect(&dlg, &SettingsDialog::cache_clear_requested, this, [this]() {
-            m_thumb_cache->purge_missing();
-            statusBar()->showMessage("Cache wyczyszczony.", 3000);
+            m_thumb_cache->clear_all_async();
+            statusBar()->showMessage("Czyszczenie cache miniatur…", 4000);
         });
         dlg.exec();
+        m_thumb_cache->set_limit_mb(SettingsDialog::disk_cache_mb());
         // Zastosuj widoczność histogramu
         m_preview_panel->set_histogram_visible(SettingsDialog::histogram_visible());
     });
     tools_menu->addSeparator();
-    tools_menu->addAction("Wyczyść cache miniatur", this, &MainWindow::action_purge_cache);
+    tools_menu->addAction("Usuń z cache wpisy brakujących plików", this, &MainWindow::action_purge_cache);
     auto* new_folder_act = new QAction("Nowy folder tutaj", this);
     new_folder_act->setShortcut(QKeySequence("Ctrl+Shift+N"));
     QObject::connect(new_folder_act, &QAction::triggered, this, &MainWindow::action_new_folder);
@@ -1719,9 +1734,8 @@ void MainWindow::action_new_folder() {
 }
 
 void MainWindow::action_purge_cache() {
-    m_thumb_cache->purge_missing();
-    statusBar()->showMessage(
-        QString("Cache wyczyszczony. %.1f MB").arg(m_thumb_cache->db_size_mb()), 4000);
+    m_thumb_cache->maintenance_async(true, 0);
+    statusBar()->showMessage("Usuwanie z cache wpisów brakujących plików (w tle)…", 4000);
 }
 
 void MainWindow::action_print() {
