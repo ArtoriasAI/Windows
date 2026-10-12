@@ -1,5 +1,6 @@
 #include "LapesEye/workers/ThumbWorker.h"
 #include "LapesEye/core/ThumbCache.h"
+#include <algorithm>
 #include "LapesEye/core/ColorManagement.h"
 #include <QColorSpace>
 #include "LapesEye/core/FileScanner.h"
@@ -78,14 +79,18 @@ void ThumbJob::run() {
             // Jeśli rozmiar cache pasuje — użyj bezpośrednio z USM
             // Jeśli nie pasuje (stary wpis 512px) — nie skaluj, tylko wyjdź
             // i przejdź do regeneracji poniżej (ostrzejszy wynik)
-            bool size_ok = (img.width() == m_size || img.height() == m_size);
+            // Wpis jest użyteczny gdy jest co najmniej tak duży jak żądany —
+            // większy skalujemy w dół (zmniejszenie suwaka nie kasuje bufora)
+            const int maxdim = std::max(img.width(), img.height());
+            bool size_ok = (maxdim >= m_size - 2);
             if (size_ok && !img.isNull()) {
+                if (maxdim > m_size + 1)
+                    img = img.scaled(m_size, m_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 if (!img.isNull()) img = usm_thumb(img, 0.65f);
                 emit image_ready(m_path, img, ThumbQuality::CacheHit, m_generation);
                 return;
             }
-            // Rozmiar nie pasuje — usuń stary wpis i regeneruj
-            m_cache->remove(m_path);
+            // Wpis za mały — regeneruj (put() nadpisze go większym)
         }
     }
 
