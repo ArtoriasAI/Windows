@@ -102,12 +102,15 @@ void SettingsDialog::setup_ui() {
     auto* disk_form = new QFormLayout(disk_box);
 
     m_disk_cache_mb = new QSpinBox(this);
-    m_disk_cache_mb->setRange(128, 65536);
+    m_disk_cache_mb->setRange(0, 10000000);      // dowolny limit; 0 = bez limitu
     m_disk_cache_mb->setSingleStep(256);
     m_disk_cache_mb->setSuffix(" MB");
+    m_disk_cache_mb->setSpecialValueText("Bez limitu");
+    m_disk_cache_mb->setKeyboardTracking(false);
     m_disk_cache_mb->setToolTip(
         "Miniatury zapisane na dysku — trwałe między sesjami.\n"
-        "Większy = więcej zdjęć bez ponownego generowania miniatur.");
+        "Większy = więcej zdjęć bez ponownego generowania miniatur.\n"
+        "Wpisz dowolną wartość w MB (1 GB = 1024 MB). 0 = bez limitu.");
 
     m_disk_cache_label = new QLabel(this);
     m_disk_cache_label->setStyleSheet("color: #888; font-size: 10px;");
@@ -298,18 +301,23 @@ void SettingsDialog::update_size_labels() {
             .arg(ram * 1024 / 150));
 
     int disk = m_disk_cache_mb->value();
-    m_disk_cache_label->setText(
-        QString("≈ %1 miniatur na dysku (przy śr. 80 KB/szt.)")
-            .arg(disk * 1024 / 80));
+    if (disk <= 0)
+        m_disk_cache_label->setText("Bez limitu — bufor rośnie dopóki go nie wyczyścisz");
+    else
+        m_disk_cache_label->setText(
+            QString("≈ %1 miniatur na dysku (przy śr. 80 KB/szt.)")
+                .arg(qint64(disk) * 1024 / 80));
 
     // Pokaż aktualny rozmiar bazy (jeśli dostępny przez settings)
     QSettings s("Lape", "LapesEye");
     double current_mb = s.value("cache/current_size_mb", 0.0).toDouble();
     if (current_mb > 0)
         m_disk_cache_info->setText(
-            QString("%1 MB (%2% limitu)")
-                .arg(current_mb, 0, 'f', 1)
-                .arg(current_mb / disk * 100, 0, 'f', 0));
+            disk > 0
+              ? QString("%1 MB (%2% limitu)")
+                    .arg(current_mb, 0, 'f', 1)
+                    .arg(current_mb / disk * 100, 0, 'f', 0)
+              : QString("%1 MB").arg(current_mb, 0, 'f', 1));
     else
         m_disk_cache_info->setText("(nieznany — uruchom program żeby sprawdzić)");
 }
