@@ -19,7 +19,7 @@ jobs:
 
       # ── 2. Qt6 ──────────────────────────────────────────────────────────
       - name: Install Qt6
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@v4.3.1
         with:
           version: '6.7.*'
           host: windows
@@ -86,7 +86,7 @@ jobs:
       - name: Build installer
         run: |
           makensis /V2 ^
-            /DAPP_VERSION="0.6" ^
+            /DAPP_VERSION="0.6.0" ^
             /DDEPLOY_DIR="%CD%\deploy" ^
             installer\lapes-eye-installer.nsi
         shell: cmd
