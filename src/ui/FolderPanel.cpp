@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FolderPanel.h"
+#include <QPointer>
 #include "LapesEye/core/Collection.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
 #include "LapesEye/core/MetaStore.h"
@@ -222,14 +223,39 @@ void FolderPanel::set_current_path(const QString& path) {
 }
 
 void FolderPanel::highlight_current() {
-    // Przewiń do zaznaczonego elementu
+    // Znajdź element aktualnego folderu; preferuj drzewo (expandable) przed "Miejscami" u góry
+    QListWidgetItem* target = nullptr;
     for (int i = 0; i < m_list->count(); ++i) {
         auto* item = m_list->item(i);
-        if (item->data(RolePath).toString() == m_current_path) {
-            m_list->scrollToItem(item, QAbstractItemView::EnsureVisible);
-            break;
-        }
+        if (item->data(RolePath).toString() != m_current_path) continue;
+        if (!target) target = item;
+        if (item->data(RoleType).toString() == "expandable") { target = item; break; }
     }
+    if (!target) return;
+
+    // Lista dopiero co przebudowana — układ jest gotowy dopiero po powrocie do pętli zdarzeń.
+    // Jeśli element jest poza widokiem, wyśrodkuj go (jak Eksplorator / VS Code).
+    QPointer<QListWidget> list = m_list;
+    const QString path = m_current_path;
+    auto reveal = [list, path]() {
+        if (!list) return;
+        QListWidgetItem* it = nullptr;
+        for (int i = 0; i < list->count(); ++i) {
+            auto* cand = list->item(i);
+            if (cand->data(RolePath).toString() != path) continue;
+            if (!it) it = cand;
+            if (cand->data(RoleType).toString() == "expandable") { it = cand; break; }
+        }
+        if (!it) return;
+        const QRect r = list->visualItemRect(it);
+        const QRect vp = list->viewport()->rect();
+        const bool fully_visible = vp.contains(r.topLeft()) && vp.contains(r.bottomLeft());
+        if (!fully_visible)
+            list->scrollToItem(it, QAbstractItemView::PositionAtCenter);
+    };
+    reveal();
+    QTimer::singleShot(0, m_list, reveal);
+    QTimer::singleShot(80, m_list, reveal);   // zapas na późny layout
 }
 
 // ─── Budowanie listy ──────────────────────────────────────────────────────────
