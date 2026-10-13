@@ -13,8 +13,94 @@
 #include <QSlider>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QTextStream>
 
 namespace LapesEye {
+
+namespace {
+// Photoshop pyta o zgodę przy każdym skrypcie uruchamianym z pliku (-r).
+// Parametr "WarnRunningScripts 0" w PSUserConfig.txt wyłącza to pytanie.
+// Zwraca: 1 = dodano, 0 = już było, -1 = nie znaleziono folderu ustawień
+int leye_disable_ps_script_warning(const QString& exe_path) {
+#ifdef Q_OS_WIN
+    const QString appdata = qEnvironmentVariable("APPDATA");   // ...\\AppData\\Roaming
+    if (appdata.isEmpty()) return -1;
+    QDir roaming(appdata);
+    QDir adobe(roaming.absoluteFilePath("Adobe"));
+    if (!adobe.exists()) return -1;
+
+    // Folder wersji z ścieżki exe: ...\Adobe Photoshop 2025\Photoshop.exe
+    QStringList versions;
+    const QString ver = QFileInfo(exe_path).dir().dirName();
+    if (ver.startsWith("Adobe Photoshop")) versions << ver;
+    if (versions.isEmpty())
+        versions = adobe.entryList({"Adobe Photoshop*"}, QDir::Dirs | QDir::NoDotAndDotDot);
+
+    int result = -1;
+    for (const QString& v : versions) {
+        QDir settings(adobe.absoluteFilePath(v + "/" + v + " Settings"));
+        if (!settings.exists()) continue;
+        const QString cfg = settings.absoluteFilePath("PSUserConfig.txt");
+        QFile f(cfg);
+        QString text;
+        if (f.exists() && f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            text = QString::fromUtf8(f.readAll());
+            f.close();
+        }
+        bool has = false, zero = false;
+        for (const QString& line : text.split('\n')) {
+            const QStringList w = line.simplified().split(' ');
+            if (w.size() >= 2 && w[0].compare("WarnRunningScripts", Qt::CaseInsensitive) == 0) {
+                has = true;
+                if (w[1] == "0") zero = true;
+            }
+        }
+        if (has) { if (zero && result < 1) result = 0; continue; }  // nie nadpisujemy cudzej wartości
+        if (!f.open(QIODevice::Append | QIODevice::Text)) continue;
+        QTextStream out(&f);
+        if (!text.isEmpty() && !text.endsWith('\n')) out << "\n";
+        out << "WarnRunningScripts 0\n";
+        f.close();
+        result = 1;
+    }
+    return result;
+#else
+    Q_UNUSED(exe_path);
+    return -1;
+#endif
+}
+
+void leye_maybe_fix_ps_warning(QWidget* parent, const QString& exe_path) {
+#ifdef Q_OS_WIN
+    if (!QFileInfo(exe_path).fileName().contains("photoshop", Qt::CaseInsensitive)) return;
+    auto btn = QMessageBox::question(parent, "Photoshop",
+        "Photoshop pyta o zgodę przy każdym skrypcie, którego Lape's Eye używa do "
+        "otwierania zdjęć (klawisz E).\n\n"
+        "Czy dopisać \"WarnRunningScripts 0\" do pliku PSUserConfig.txt Photoshopa, "
+        "żeby to pytanie się nie pojawiało?\n"
+        "(Plik zostanie utworzony, jeśli go nie ma. Wymaga ponownego uruchomienia Photoshopa.)",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (btn != QMessageBox::Yes) return;
+    const int r = leye_disable_ps_script_warning(exe_path);
+    if (r == 1)
+        QMessageBox::information(parent, "Photoshop",
+            "Gotowe. Uruchom Photoshopa ponownie, żeby zmiana zadziałała.");
+    else if (r == 0)
+        QMessageBox::information(parent, "Photoshop", "Ostrzeżenie jest już wyłączone.");
+    else
+        QMessageBox::warning(parent, "Photoshop",
+            "Nie znaleziono folderu ustawień Photoshopa (uruchom go choć raz) "
+            "albo plik ma już własną wartość WarnRunningScripts.");
+#else
+    Q_UNUSED(parent); Q_UNUSED(exe_path);
+#endif
+}
+} // namespace
+
 
 // ─── Statyczne odczyty ustawień ───────────────────────────────────────────────
 
@@ -332,6 +418,11 @@ void SettingsDialog::apply() {
 
 void SettingsDialog::save_values() {
     QSettings s("Lape", "LapesEye");
+    {   // Ręcznie wpisana ścieżka Photoshopa — zaproponuj wyłączenie ostrzeżenia
+        const QString new_path = m_editor_path->text().trimmed();
+        if (new_path != s.value("editor/path").toString() && QFileInfo::exists(new_path))
+            leye_maybe_fix_ps_warning(this, new_path);
+    }
     s.setValue("cache/ram_mb",       m_ram_cache_mb->value());
     s.setValue("cache/disk_mb",      m_disk_cache_mb->value());
     s.setValue("cache/clear_days",   m_clear_interval->currentData().toInt());
@@ -350,8 +441,9 @@ void SettingsDialog::browse_editor() {
     QString path = QFileDialog::getOpenFileName(
         this, "Wybierz edytor", "/usr/bin",
         "Programy (*);; Wszystkie pliki (*)");
-    if (!path.isEmpty())
-        m_editor_path->setText(path);
+    if (!path.isEmpty()) {
+        m_editor_path->setText(path);   // pytanie o Photoshopa pojawi się przy zapisie
+    }
 }
 
 void SettingsDialog::clear_disk_cache_now() {
