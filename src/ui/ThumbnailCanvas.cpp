@@ -5,6 +5,7 @@
 #  include <cmath>
 #endif
 #include "LapesEye/core/PerfTimer.h"
+#include "LapesEye/core/FolderIcon.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -359,7 +360,9 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
             s_folder_icon = QPixmap(":/icons/folder_icon.png");
         if (!s_folder_icon.isNull()) {
             int fsz = qMin(avail_w, avail_h) * 85 / 100;
-            QPixmap scaled = s_folder_icon.scaled(fsz, fsz,
+            // Własna ikona folderu ustawiona w systemie ma pierwszeństwo
+            QPixmap custom_ic = custom_folder_icon(item.file.path, fsz);
+            QPixmap scaled = (custom_ic.isNull() ? s_folder_icon : custom_ic).scaled(fsz, fsz,
                 Qt::KeepAspectRatio, Qt::SmoothTransformation);
             int fx = img_rect.x() + (avail_w - scaled.width())  / 2;
             int fy = img_rect.y() + (avail_h - scaled.height()) / 2;
@@ -856,7 +859,8 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
             s_folder_px = QPixmap(":/icons/folder_icon.png");
         if (!s_folder_px.isNull()) {
             int fsz = qMin(ir.width(), ir.height()) * 85 / 100;
-            QPixmap sc = s_folder_px.scaled(fsz, fsz,
+            QPixmap custom_ic = custom_folder_icon(item.file.path, fsz);
+            QPixmap sc = (custom_ic.isNull() ? s_folder_px : custom_ic).scaled(fsz, fsz,
                 Qt::KeepAspectRatio, Qt::SmoothTransformation);
             int fx = ir.x() + (ir.width()  - sc.width())  / 2;
             int fy = ir.y() + (ir.height() - sc.height()) / 2;
