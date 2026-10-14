@@ -132,6 +132,7 @@ private:
 
     // ── Statusbar ─────────────────────────────────────────────────────────────
     QLabel*     m_status_count  = nullptr;
+    QLabel*     m_status_files  = nullptr;   // licznik plików folderu (zawsze widoczny)
     QLineEdit*    m_address_bar   = nullptr;  // legacy
     // m_open_action usunięty — Enter obsługuje ThumbnailGrid::keyPressEvent
     BreadcrumbBar* m_breadcrumb    = nullptr;
