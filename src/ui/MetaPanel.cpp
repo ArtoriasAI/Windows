@@ -148,6 +148,7 @@ void MetaPanel::setup_ui() {
     counter_lay2->setContentsMargins(8, 2, 8, 6);
     m_file_counter->setParent(inner);  // już stworzony wyżej, tylko przepinamy layout
     counter_lay2->addWidget(m_file_counter);
+    m_file_counter->hide();   // licznik plików przeniesiony na pasek statusu (MainWindow)
     outer->addLayout(counter_lay2);
 
     QObject::connect(m_save_btn, &QPushButton::clicked, this, &MetaPanel::save);
