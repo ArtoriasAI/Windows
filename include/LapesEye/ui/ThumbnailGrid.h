@@ -98,6 +98,11 @@ public:
 
     QStringList selected_paths() const;
     QStringList selected_paths_ordered() const;
+    // Liczba plików (bez folderów) i ile miniatur już załadowano — do paska statusu
+    void file_progress(int& loaded, int& total) const {
+        loaded = m_thumbs_loaded; total = 0;
+        for (const auto& f : m_all_files) if (!f.is_dir) ++total;
+    }
     QString     primary_path()   const;
     QStringList visible_file_paths() const;
 
