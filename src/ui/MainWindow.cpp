@@ -42,6 +42,7 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QSettings>
+#include <QSet>
 #include <QApplication>
 #include <QClipboard>
 #include <QMimeData>
@@ -251,12 +252,22 @@ void MainWindow::setup_toolbar() {
 
 void MainWindow::setup_statusbar() {
     m_status_count  = new QLabel("", this);
+    m_status_files  = new QLabel("", this);
+    m_status_files->setToolTip("Liczba plików w folderze");
     m_status_path   = new QLabel("", this);
     m_ipc_indicator = new QLabel("● Lape: rozłączono", this);
     m_ipc_indicator->setStyleSheet("color: #888;");
     statusBar()->addWidget(m_status_count);
     statusBar()->addWidget(m_status_path, 1);
+    statusBar()->addPermanentWidget(m_status_files);
     statusBar()->addPermanentWidget(m_ipc_indicator);
+}
+
+// Tekst licznika plików na pasku statusu
+static QString leye_files_text(int loaded, int total) {
+    if (total <= 0) return "Pliki: —";
+    if (loaded > 0 && loaded < total) return QString("Pliki: %1 / %2").arg(loaded).arg(total);
+    return QString("Pliki: %1").arg(total);
 }
 
 void MainWindow::setup_panels() {
@@ -751,15 +762,35 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
     QObject::connect(grid, &ThumbnailGrid::status_message,
                      this, [this](const QString& msg) { statusBar()->showMessage(msg, 3000); });
     QObject::connect(grid, &ThumbnailGrid::fullscreen_requested, this,
-                     [this, grid](const QStringList& paths, int idx) {
+                     [this, grid](const QStringList& all_paths, int all_idx) {
+                         // Zaznaczone 2+ zdjęcia → w pełnym ekranie tylko te zaznaczone
+                         // (w kolejności z siatki). Jedno zaznaczone → cały folder jak dotąd.
+                         QStringList paths = all_paths;
+                         int idx = all_idx;
+                         bool subset = false;
+                         const QStringList sel = grid->selected_paths();
+                         if (sel.size() >= 2 && all_idx >= 0 && all_idx < all_paths.size()) {
+                             const QSet<QString> sel_set(sel.begin(), sel.end());
+                             if (sel_set.contains(all_paths[all_idx])) {
+                                 QStringList subset_paths;
+                                 for (const QString& p : all_paths)
+                                     if (sel_set.contains(p)) subset_paths << p;
+                                 if (subset_paths.size() >= 2) {
+                                     idx = subset_paths.indexOf(all_paths[all_idx]);
+                                     paths = subset_paths;
+                                     subset = true;
+                                 }
+                             }
+                         }
                          m_fullscreen_viewer->show_image(paths, idx);
                          // Punkt 5: gdy zamykamy fullscreen, zaznacz ostatnie przeglądane zdjęcie
                          // Używamy jednorazowego połączenia przez QMetaObject
                          QObject::connect(m_fullscreen_viewer, &FullscreenViewer::closed,
-                                          this, [this, grid]() {
+                                          this, [this, grid, subset]() {
                              int cur = m_fullscreen_viewer->current_index();
                              auto all = m_fullscreen_viewer->paths();
-                             if (cur >= 0 && cur < all.size())
+                             // Przy podglądzie samych zaznaczonych zostaw zaznaczenie bez zmian
+                             if (!subset && cur >= 0 && cur < all.size())
                                  grid->select_path(all[cur]);
                              // Przywróć fokus do grida po wyjściu z fullscreen
                              grid->setFocus();
@@ -798,6 +829,7 @@ ThumbnailGrid* MainWindow::add_tab(const QString& path) {
                      this, [this, grid](int loaded, int total) {
                          if (grid != current_grid()) return;
                          m_meta_panel->set_file_count(loaded, total);
+                         if (m_status_files) m_status_files->setText(leye_files_text(loaded, total));
                      });
     QObject::connect(m_filter_bar, &FilterBar::filter_changed, grid, &ThumbnailGrid::set_filter);
     // Siatka sama przełączyła sortowanie (ręczna kolejność folderu) → pokaż to w comboboxie
@@ -883,6 +915,12 @@ void MainWindow::on_tab_changed(int index) {
         const int bm = m_filter_bar->sort_mode();
         const int manual = static_cast<int>(SortMode::Manual);
         if ((gm == manual || bm == manual) && gm != bm) m_filter_bar->set_sort_mode(gm);
+    }
+
+    if (m_status_files) {
+        int loaded = 0, total = 0;
+        grid->file_progress(loaded, total);
+        m_status_files->setText(leye_files_text(loaded, total));
     }
 
     update_nav_buttons();
