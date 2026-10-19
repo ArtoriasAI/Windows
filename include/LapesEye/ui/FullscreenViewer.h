@@ -35,10 +35,15 @@ public:
     int              current_index() const { return m_index; }
     const QStringList& paths()        const { return m_paths;  }
 
+public:
+    // Usuwa zdjęcie z listy przeglądania (po skasowaniu pliku) i przechodzi na poprzednie
+    void remove_path(const QString& path);
+
 signals:
     void closed();
     void index_changed(int index);  // emitowany przy nawigacji (punkt 5)
     void flag_requested(const QString& path, PickFlag flag);  // Z/X w fullscreen
+    void delete_requested(const QString& path);               // Delete w fullscreen
 
 protected:
     void keyPressEvent(QKeyEvent* e) override;
