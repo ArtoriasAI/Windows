@@ -1416,6 +1416,32 @@ void FullscreenViewer::draw_overlay(QPainter& p) {
         "←/→  nawigacja   LPM  zoom x2 / reset   Scroll  zoom   0  reset   Spacja/Esc  zamknij");
 }
 
+// ─── Usunięcie zdjęcia z listy po skasowaniu pliku ───────────────────────────
+void FullscreenViewer::remove_path(const QString& path) {
+    const int i = m_paths.indexOf(path);
+    if (i < 0) return;
+    m_paths.removeAt(i);
+    m_prefetch_cache.remove(path);
+    m_prefetch_full_cache.remove(path);
+    m_prefetch_full_pix_cache.remove(path);
+    m_prefetch_full_in_flight.remove(path);
+    m_prefetch_in_flight.remove(path);
+
+    if (m_paths.isEmpty()) { hide(); emit closed(); return; }
+
+    // Fokus na zdjęcie jedno przed usuniętym (jak w siatce); przy pierwszym — następne
+    if (i > 0) { m_index = i - 1; m_nav_dir = -1; }
+    else       { m_index = 0; }
+    m_cur_idx = m_index;
+    m_pixmap_full = QPixmap{};
+    ++m_load_gen_full;
+    m_show_overlay = true;
+    m_overlay_timer->start();
+    load_current();
+    prefetch_neighbors();
+    emit index_changed(m_index);
+}
+
 // ─── Klawiatura ──────────────────────────────────────────────────────────────
 void FullscreenViewer::keyPressEvent(QKeyEvent* e) {
     m_show_overlay = true;
@@ -1425,6 +1451,11 @@ void FullscreenViewer::keyPressEvent(QKeyEvent* e) {
         case Qt::Key_Right: case Qt::Key_Down: navigate(+1); return;
         case Qt::Key_Space: case Qt::Key_Escape:
             hide(); emit closed(); return;
+        case Qt::Key_Delete:
+            // Usuń bieżące zdjęcie (do kosza) — obsługuje MainWindow
+            if (!m_paths.isEmpty() && m_index >= 0 && m_index < m_paths.size())
+                emit delete_requested(m_paths[m_index]);
+            return;
         case Qt::Key_Z:
             // Wybrane (Pick) — toggle
             if (!m_paths.isEmpty() && m_index >= 0 && m_index < m_paths.size()) {
