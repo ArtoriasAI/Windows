@@ -1996,8 +1996,11 @@ void ThumbnailGrid::dropEvent(QDropEvent* e) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 void ThumbnailGrid::delete_selected() {
-    QStringList paths = selected_paths();
-    if (paths.isEmpty()) return;
+    delete_paths(selected_paths());
+}
+
+bool ThumbnailGrid::delete_paths(const QStringList& paths) {
+    if (paths.isEmpty()) return false;
 
     // Przenieś do kosza systemowego (Linux: ~/.local/share/Trash, Windows: Kosz)
     // QFile::moveToTrash() — bezpieczne, można odzyskać
@@ -2023,6 +2026,7 @@ void ThumbnailGrid::delete_selected() {
             "Nie udało się przenieść do kosza:\n" + failed.join("\n"));
     }
     remove_items_in_place(paths);
+    return failed.isEmpty();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
