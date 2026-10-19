@@ -110,6 +110,8 @@ public:
     void select_all();
     void deselect_all();
     void delete_selected();
+    // Przenosi podane pliki do kosza i usuwa je z widoku; zwraca true gdy wszystkie zniknęły
+    bool delete_paths(const QStringList& paths);
     void refresh_metadata(const QString& path);
     void start_rename_selected();
     void select_and_rename(const QString& path);
