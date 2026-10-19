@@ -127,6 +127,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_thumb_worker = std::make_unique<ThumbWorker>(m_thumb_cache.get());
     m_fullscreen_viewer = new FullscreenViewer(this);
     // Z/X w fullscreen — przekaż do MetaPanel który zapisze i odświeży grid
+    // Delete w fullscreen — kosz + usunięcie z siatki, potem fokus na poprzednie zdjęcie
+    QObject::connect(m_fullscreen_viewer, &FullscreenViewer::delete_requested,
+                     this, [this](const QString& path) {
+        auto* g = current_grid();
+        if (!g) return;
+        g->delete_paths(QStringList{path});
+        if (!QFileInfo::exists(path))
+            m_fullscreen_viewer->remove_path(path);
+    });
     QObject::connect(m_fullscreen_viewer, &FullscreenViewer::flag_requested,
                      this, [this](const QString& path, PickFlag flag) {
         if (m_meta_panel) m_meta_panel->set_flag_for_path(path, flag);
