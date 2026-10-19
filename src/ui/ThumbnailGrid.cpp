@@ -36,6 +36,7 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <QFile>
+#include <QThread>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
@@ -2012,7 +2013,13 @@ bool ThumbnailGrid::delete_paths(const QStringList& paths) {
             ok = QFile::moveToTrash(path);
             if (!ok) ok = !QDir(path).removeRecursively();
         } else {
-            ok = QFile::moveToTrash(path);
+            // Windows: plik RAW bywa jeszcze czytany przez wątek w tle (podgląd/miniatura)
+            // i system odmawia przeniesienia — ponawiaj krótko zanim pokażemy błąd
+            for (int attempt = 0; attempt < 15; ++attempt) {
+                ok = QFile::moveToTrash(path);
+                if (ok || !QFileInfo::exists(path)) { ok = true; break; }
+                QThread::msleep(200);
+            }
         }
         if (!ok) failed << QFileInfo(path).fileName();
 
