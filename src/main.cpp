@@ -1,325 +1,125 @@
-#include "LapesEye/ui/FilterBar.h"
+#include "LapesEye/ui/MainWindow.h"
+#include "LapesEye/ui/FolderPanel.h"
+#include "LapesEye/ui/ThumbnailGrid.h"
+
+#include <QApplication>
+#include "LapesEye/core/ColorManagement.h"
 #include "LapesEye/core/Theme.h"
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QPainter>
-#include <QPixmap>
-#include <QComboBox>
+#include <QCoreApplication>
+#include <QSurfaceFormat>
+#include <QDir>
+#include <QIcon>
+#include <QStandardPaths>
+#include <QTimer>
 
-namespace LapesEye {
+int main(int argc, char* argv[]) {
+#if LEYE_HAS_GL
+#ifdef Q_OS_WIN
+    QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+    // DPI awareness — bez tego crash przy show() na monitorach Per-Monitor DPI
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+    qputenv("QT_OPENGL", "desktop");
+#else
+    // Wymuś GLX tylko gdy używamy XCB (X11), nie Wayland
+    if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION") &&
+        qEnvironmentVariableIsSet("DISPLAY") &&
+        !qEnvironmentVariableIsSet("WAYLAND_DISPLAY"))
+        qputenv("QT_XCB_GL_INTEGRATION", "xcb_glx");
+#endif
+    // Domyślny format GL dla wszystkich QOpenGLWidget
+    QSurfaceFormat fmt;
+    fmt.setVersion(4, 5);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    fmt.setSwapInterval(1);
+    QSurfaceFormat::setDefaultFormat(fmt);
+#endif
+    QApplication app(argc, argv);
+    app.setApplicationName("Lape's Eye");
+    refresh_color_mode_cache();  // pre-load trybu kolorów dla wątków roboczych
+    app.setOrganizationName("Lape");
 
-FilterBar::FilterBar(QWidget* parent) : QWidget(parent) {
-    setup_ui();
-    setFixedHeight(40);
-}
+    // Motyw kolorystyczny (Ustawienia → Motyw kolorystyczny). Musi być przed
+    // utworzeniem okien. Filtr przelicza kolory w każdym setStyleSheet().
+    LapesEye::Theme::init();
+    if (LapesEye::Theme::active())
+        app.installEventFilter(new LapesEye::ThemeFilter(&app));
+    app.setApplicationVersion("0.5.8");
+    app.setDesktopFileName("lapes-eye");
 
-void FilterBar::setup_ui() {
-    auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(8, 4, 8, 4);
-    layout->setSpacing(8);
+    // Ikona aplikacji — wielorozdzielcza z QRC
+    QIcon appIcon;
+#ifdef Q_OS_WIN
+    appIcon = QIcon(":/icons/lapes-eye.ico");
+    if (appIcon.isNull()) {
+        appIcon.addFile(":/icons/lapes-eye-16.png", QSize(16,16));
+        appIcon.addFile(":/icons/lapes-eye-32.png", QSize(32,32));
+        appIcon.addFile(":/icons/lapes-eye-256.png",QSize(256,256));
+    }
+#else
+    appIcon.addFile(":/icons/lapes-eye-16.png",  QSize(16,16));
+    appIcon.addFile(":/icons/lapes-eye-22.png",  QSize(22,22));
+    appIcon.addFile(":/icons/lapes-eye-32.png",  QSize(32,32));
+    appIcon.addFile(":/icons/lapes-eye-48.png",  QSize(48,48));
+    appIcon.addFile(":/icons/lapes-eye-64.png",  QSize(64,64));
+    appIcon.addFile(":/icons/lapes-eye-128.png", QSize(128,128));
+    appIcon.addFile(":/icons/lapes-eye-256.png", QSize(256,256));
+#endif
+    app.setWindowIcon(appIcon);
 
-    auto make_btn = [&](const QString& text, const QString& tip) -> QToolButton* {
-        auto* b = new QToolButton(this);
-        b->setText(text);
-        b->setToolTip(tip);
-        b->setCheckable(true);
-        b->setAutoRaise(true);
-        b->setStyleSheet(R"(
-            QToolButton { padding: 3px 10px; border-radius: 3px;
-                          border: 1px solid #444; color: #bbb; }
-            QToolButton:checked { background: #2D7DD2; border-color: #2D7DD2; color: white; }
-            QToolButton:hover:!checked { background: #333; }
-        )");
-        return b;
-    };
+    // Upewnij się że katalogi konfiguracyjne istnieją
+    QString cfg = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+    QDir().mkpath(cfg + "/lape/bridge");
+    QString cache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(cache);
 
-    // ── Widoczność ─────────────────────────────────────────────────────────────
-    layout->addWidget(new QLabel("Widoczność:", this));
+    LapesEye::MainWindow win;
 
-    m_all_btn = make_btn("Wszystkie", "Pokaż wszystkie pliki");
-    m_all_btn->setChecked(true);  // domyślnie
-    layout->addWidget(m_all_btn);
+    // Globalnie wyeliminuj focus rect z QScrollArea — KDE Breeze rysuje niebieską
+    // ramkę na QScrollArea::viewport() gdy widget ma StrongFocus. Dotyczy to
+    // ThumbnailGrid::m_scroll. Ustawiamy to po stworzeniu okna (po załadowaniu stylu).
+    app.setStyleSheet(app.styleSheet() +
+        "QScrollArea { border: none; outline: none; }"
+        "QScrollArea:focus { border: none; outline: none; }"
+        "QScrollArea > QWidget > QWidget { outline: none; }"
+        "QAbstractScrollArea { border: none; outline: none; }"
+        "QAbstractScrollArea:focus { border: none; outline: none; }"
+    );
 
-    m_unflagged_only = make_btn("Nie zaznaczone", "Pokaż tylko pliki bez flagi (ukryj Wybrane i Odrzucone)");
-    layout->addWidget(m_unflagged_only);
+    win.show();
 
-    m_pick_only = make_btn("✓  Wybrane", "Pokaż tylko wybrane (z flagą Pick)");
-    layout->addWidget(m_pick_only);
+    // Obsługa argumentów:
+    // - folder: otwórz bezpośrednio
+    // - plik: otwórz folder zawierający + zaznacz plik
+    // Dzięki temu "Otwórz w Lape's Eye" z menedżera plików działa dla obu
+    const auto args = QApplication::arguments();
+    if (args.size() > 1) {
+        QString arg = args[1];
+        QString startDir;
+        QString selectFile;
 
-    m_reject_only = make_btn("✗  Odrzucone", "Pokaż tylko odrzucone");
-    layout->addWidget(m_reject_only);
-
-    layout->addSpacing(16);
-
-    // ── Format ────────────────────────────────────────────────────────────────
-    m_raw_only = make_btn("RAW", "Pokaż tylko pliki RAW");
-    m_psd_only = make_btn("PSD", "Pokaż tylko pliki PSD");
-    m_jpg_only = make_btn("JPG", "Pokaż tylko pliki JPG/JPEG");
-    layout->addWidget(m_raw_only);
-    layout->addWidget(m_psd_only);
-    layout->addWidget(m_jpg_only);
-
-    layout->addStretch();
-
-    // ── Obrót ─────────────────────────────────────────────────────────────────
-    // Przyciski zgodne ze stylem Bridge: małe, kwadratowe, ikony Unicode
-    auto make_rot = [&](const QString& icon, const QString& tip) -> QToolButton* {
-        auto* b = new QToolButton(this);
-        b->setText(icon);
-        b->setToolTip(tip);
-        b->setFixedSize(28, 28);
-        b->setAutoRaise(true);
-        b->setStyleSheet(R"(
-            QToolButton {
-                font-size: 16px; color: #ccc;
-                background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
-            }
-            QToolButton:hover   { background: #383838; border-color: #888; }
-            QToolButton:pressed { background: #1d5fa0; border-color: #2D7DD2; color: #fff; }
-        )");
-        return b;
-    };
-
-    // ── Suwak rozmiaru miniatur (przed strzałkami obrotu) ─────────────────────
-    auto* btn_minus = new QToolButton(this);
-    btn_minus->setText("−");
-    btn_minus->setFixedSize(22, 22);
-    btn_minus->setFocusPolicy(Qt::NoFocus);
-    btn_minus->setToolTip("Pomniejsz miniatury");
-    btn_minus->setAutoRepeat(true);
-    btn_minus->setAutoRepeatInterval(80);
-    btn_minus->setStyleSheet(R"(
-        QToolButton { font-size:14px; color:#ccc;
-            background:#2b2b2b; border:1px solid #555; border-radius:4px; }
-        QToolButton:hover { background:#383838; border-color:#888; }
-        QToolButton:pressed { background:#1d5fa0; }
-    )");
-
-    m_thumb_slider = new QSlider(Qt::Horizontal, this);
-    m_thumb_slider->setRange(100, 1200);
-    m_thumb_slider->setValue(220);
-    m_thumb_slider->setFixedWidth(130);
-    m_thumb_slider->setToolTip("Rozmiar miniatur");
-    m_thumb_slider->setFocusPolicy(Qt::NoFocus);
-
-    auto* btn_plus = new QToolButton(this);
-    btn_plus->setText("+");
-    btn_plus->setFixedSize(22, 22);
-    btn_plus->setFocusPolicy(Qt::NoFocus);
-    btn_plus->setToolTip("Powiększ miniatury");
-    btn_plus->setAutoRepeat(true);
-    btn_plus->setAutoRepeatInterval(80);
-    btn_plus->setStyleSheet(btn_minus->styleSheet());
-
-    layout->addWidget(btn_minus);
-    layout->addWidget(m_thumb_slider);
-    layout->addWidget(btn_plus);
-    layout->addSpacing(16);
-
-    connect(btn_minus, &QToolButton::clicked, this, [this]() {
-        int step = qMax(10, m_thumb_slider->value() / 10);
-        m_thumb_slider->setValue(m_thumb_slider->value() - step);
-    });
-    connect(btn_plus, &QToolButton::clicked, this, [this]() {
-        int step = qMax(10, m_thumb_slider->value() / 10);
-        m_thumb_slider->setValue(m_thumb_slider->value() + step);
-    });
-    connect(m_thumb_slider, &QSlider::valueChanged,
-            this, [this](int v) { emit thumb_size_changed(v); });
-
-    // ── Strzałki obrotu (po suwaku) ───────────────────────────────────────────
-    m_rotate_ccw = make_rot("↶", "Obróć w lewo (-90°)");
-    m_rotate_cw  = make_rot("↷", "Obróć w prawo (+90°)");
-    layout->addWidget(m_rotate_ccw);
-    layout->addWidget(m_rotate_cw);
-    layout->addSpacing(6);
-
-    connect(m_rotate_ccw, &QToolButton::clicked, this, [this]{ emit rotate_requested(-90); });
-    connect(m_rotate_cw,  &QToolButton::clicked, this, [this]{ emit rotate_requested(+90); });
-
-    m_search = new QLineEdit(this);
-    m_search->setPlaceholderText("Szukaj nazwy...");
-    m_search->setFixedWidth(180);
-    m_search->setClearButtonEnabled(true);
-    m_search->setStyleSheet("padding: 3px 6px; border-radius: 3px;");
-    layout->addWidget(m_search);
-
-    layout->addSpacing(16);
-
-    // ── Tryb widoku (po prawej) ───────────────────────────────────────────────
-    auto make_view_btn = [&](const QString& tip) -> QToolButton* {
-        auto* b = new QToolButton(this);
-        b->setToolTip(tip);
-        b->setCheckable(true);
-        b->setAutoRaise(true);
-        b->setFixedSize(28, 28);
-        b->setStyleSheet(R"(
-            QToolButton { border-radius: 3px; border: 1px solid #444; background: #222; }
-            QToolButton:checked { background: #2D7DD2; border-color: #2D7DD2; }
-            QToolButton:hover:!checked { background: #333; }
-        )");
-        return b;
-    };
-
-    m_single_btn = make_view_btn("Tryb pojedynczy (1 zdjęcie)");
-    m_split2_btn = make_view_btn("Porównanie 2 zdjęć");
-    m_split4_btn = make_view_btn("Porównanie 4 zdjęć");
-
-    // Ikony rysowane jako SVG inline przez QPainter — brak zależności od plików
-    m_single_btn->setIcon(QIcon(make_single_icon()));
-    m_split2_btn->setIcon(QIcon(make_split2_icon()));
-    m_split4_btn->setIcon(QIcon(make_split4_icon()));
-    m_single_btn->setIconSize({18, 18});
-    m_split2_btn->setIconSize({18, 18});
-    m_split4_btn->setIconSize({18, 18});
-
-    m_single_btn->setChecked(true);  // domyślnie tryb pojedynczy
-
-    layout->addWidget(m_single_btn);
-    layout->addWidget(m_split2_btn);
-    layout->addWidget(m_split4_btn);
-
-    // ── Połączenia ────────────────────────────────────────────────────────────
-
-    // Przyciski widoczności są wzajemnie wykluczające
-    auto exclusive_toggle = [this](QToolButton* clicked_btn) {
-        // Odznacz pozostałe przyciski widoczności
-        for (auto* btn : {m_all_btn, m_unflagged_only, m_pick_only, m_reject_only}) {
-            if (btn != clicked_btn) btn->setChecked(false);
+        if (QDir(arg).exists()) {
+            // To jest folder
+            startDir = arg;
+        } else if (QFileInfo(arg).isFile()) {
+            // To jest plik — otwórz jego folder i zaznacz plik
+            startDir  = QFileInfo(arg).absolutePath();
+            selectFile = arg;
         }
-        // Jeśli odznaczono aktywny — wróć do "Wszystkie"
-        if (!clicked_btn->isChecked()) {
-            m_all_btn->setChecked(true);
+
+        if (!startDir.isEmpty()) {
+            QTimer::singleShot(0, &win, [&win, startDir, selectFile]() {
+                win.open_folder(startDir);
+                if (!selectFile.isEmpty()) {
+                    // Zaznacz konkretny plik po otwarciu folderu
+                    QTimer::singleShot(500, &win, [&win, selectFile]() {
+                        win.select_file(selectFile);
+                    });
+                }
+            });
         }
-        emit_filter();
-    };
+    }
 
-    QObject::connect(m_all_btn,       &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_all_btn); });
-    QObject::connect(m_unflagged_only,&QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_unflagged_only); });
-    QObject::connect(m_pick_only,     &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_pick_only); });
-    QObject::connect(m_reject_only,   &QToolButton::clicked, this, [this, exclusive_toggle]() { exclusive_toggle(m_reject_only); });
-
-    QObject::connect(m_raw_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
-    QObject::connect(m_psd_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
-    QObject::connect(m_jpg_only, &QToolButton::toggled, this, [this](bool) { emit_filter(); });
-    QObject::connect(m_search,   &QLineEdit::textChanged, this, [this](const QString&) { emit_filter(); });
-
-    // Sortowanie
-    m_sort_combo = new QComboBox(this);
-    m_sort_combo->addItems({
-        "Nazwa ↑", "Nazwa ↓",
-        "Data ↑",  "Data ↓",
-        "Rozmiar ↑","Rozmiar ↓",
-        "Typ ↑",
-        "Ręcznie"
-    });
-    m_sort_combo->setToolTip("Sortowanie");
-    m_sort_combo->setMaximumWidth(110);
-    layout->addWidget(m_sort_combo);
-    QObject::connect(m_sort_combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                     this, [this](int) { emit_filter(); });
-
-    // Przycisk zaawansowanego wyszukiwania
-    auto* adv_btn = new QToolButton(this);
-    adv_btn->setText("🔍");
-    adv_btn->setToolTip("Wyszukiwanie zaawansowane (Ctrl+F)");
-    adv_btn->setAutoRaise(true);
-    adv_btn->setCheckable(true);
-    adv_btn->setStyleSheet(R"(
-        QToolButton { padding: 3px 6px; border-radius: 3px;
-                      border: 1px solid #444; color: #bbb; }
-        QToolButton:checked { background: #e67e22; border-color: #e67e22; color: white; }
-        QToolButton:hover:!checked { background: #333; }
-    )");
-    layout->addWidget(adv_btn);
-    QObject::connect(adv_btn, &QToolButton::clicked, this,
-                     [this, adv_btn](bool) { emit advanced_search_requested(); });
-
-    // Przyciski trybu — wzajemnie wykluczające
-    auto set_view_mode = [this](QToolButton* btn, CompareMode mode) {
-        for (auto* b : {m_single_btn, m_split2_btn, m_split4_btn})
-            b->setChecked(b == btn);
-        emit view_mode_changed(mode);
-    };
-    QObject::connect(m_single_btn, &QToolButton::clicked, this,
-        [this, set_view_mode]() { set_view_mode(m_single_btn, CompareMode::Single); });
-    QObject::connect(m_split2_btn, &QToolButton::clicked, this,
-        [this, set_view_mode]() { set_view_mode(m_split2_btn, CompareMode::Split2); });
-    QObject::connect(m_split4_btn, &QToolButton::clicked, this,
-        [this, set_view_mode]() { set_view_mode(m_split4_btn, CompareMode::Split4); });
+    return app.exec();
 }
-
-void FilterBar::emit_filter() {
-    GridFilter f;
-
-    if (m_pick_only->isChecked())
-        f.pick_flag = PickFlag::Pick;
-    else if (m_reject_only->isChecked())
-        f.pick_flag = PickFlag::Reject;
-    else
-        f.pick_flag = PickFlag::None;
-    f.only_unflagged = m_unflagged_only->isChecked();
-
-    f.only_raw      = m_raw_only->isChecked();
-    f.only_psd      = m_psd_only->isChecked();
-    f.only_jpg      = m_jpg_only->isChecked();
-    f.name_contains = m_search->text().trimmed();
-    f.sort_mode     = m_sort_combo
-                      ? static_cast<SortMode>(m_sort_combo->currentIndex())
-                      : SortMode::NameAsc;
-
-    emit filter_changed(f);
-}
-
-int FilterBar::sort_mode() const {
-    return m_sort_combo ? m_sort_combo->currentIndex() : 0;
-}
-
-void FilterBar::set_sort_mode(int mode) {
-    if (!m_sort_combo || mode < 0 || mode >= m_sort_combo->count()) return;
-    QSignalBlocker blocker(m_sort_combo);   // bez ponownego wysyłania filtra
-    m_sort_combo->setCurrentIndex(mode);
-}
-
-// ─── Ikony trybów (rysowane programowo) ──────────────────────────────────────
-
-QPixmap FilterBar::make_single_icon() {
-    QPixmap pix(18, 18);
-    pix.fill(Qt::transparent);
-    QPainter p(&pix);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
-    p.setBrush(Qt::NoBrush);
-    // Jeden prostokąt wypełniający całość
-    p.drawRect(2, 2, 14, 14);
-    return pix;
-}
-
-QPixmap FilterBar::make_split2_icon() {
-    QPixmap pix(18, 18);
-    pix.fill(Qt::transparent);
-    QPainter p(&pix);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
-    p.setBrush(Qt::NoBrush);
-    // Prostokąt podzielony pionową kreską na 2 części
-    p.drawRect(2, 2, 14, 14);
-    p.drawLine(9, 2, 9, 16);
-    return pix;
-}
-
-QPixmap FilterBar::make_split4_icon() {
-    QPixmap pix(18, 18);
-    pix.fill(Qt::transparent);
-    QPainter p(&pix);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
-    p.setBrush(Qt::NoBrush);
-    // Prostokąt podzielony na 4 części
-    p.drawRect(2, 2, 14, 14);
-    p.drawLine(9, 2, 9, 16);   // pionowa
-    p.drawLine(2, 9, 16, 9);   // pozioma
-    return pix;
-}
-
-} // namespace LapesEye
