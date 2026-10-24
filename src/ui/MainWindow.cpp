@@ -1,4 +1,5 @@
 #include "LapesEye/ui/MainWindow.h"
+#include "LapesEye/core/Theme.h"
 #include "LapesEye/core/PerfTimer.h"
 #include "LapesEye/ui/FolderPanel.h"
 #include "LapesEye/ui/ThumbnailGrid.h"
@@ -69,14 +70,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     qApp->setStyle("Fusion");
     QPalette pal;
-    pal.setColor(QPalette::Window,          QColor(0x1E, 0x1E, 0x1E));
-    pal.setColor(QPalette::WindowText,      QColor(0xCC, 0xCC, 0xCC));
-    pal.setColor(QPalette::Base,            QColor(0x28, 0x28, 0x28));
-    pal.setColor(QPalette::AlternateBase,   QColor(0x24, 0x24, 0x24));
-    pal.setColor(QPalette::Text,            QColor(0xCC, 0xCC, 0xCC));
-    pal.setColor(QPalette::Button,          QColor(0x38, 0x38, 0x38));
-    pal.setColor(QPalette::ButtonText,      QColor(0xCC, 0xCC, 0xCC));
-    pal.setColor(QPalette::Highlight,       QColor(0x2D, 0x7D, 0xD2));
+    pal.setColor(QPalette::Window,          Theme::c(QColor(0x1E, 0x1E, 0x1E)));
+    pal.setColor(QPalette::WindowText,      Theme::c(QColor(0xCC, 0xCC, 0xCC)));
+    pal.setColor(QPalette::Base,            Theme::c(QColor(0x28, 0x28, 0x28)));
+    pal.setColor(QPalette::AlternateBase,   Theme::c(QColor(0x24, 0x24, 0x24)));
+    pal.setColor(QPalette::Text,            Theme::c(QColor(0xCC, 0xCC, 0xCC)));
+    pal.setColor(QPalette::Button,          Theme::c(QColor(0x38, 0x38, 0x38)));
+    pal.setColor(QPalette::ButtonText,      Theme::c(QColor(0xCC, 0xCC, 0xCC)));
+    pal.setColor(QPalette::Highlight,       Theme::c(QColor(0x2D, 0x7D, 0xD2)));
     pal.setColor(QPalette::HighlightedText, Qt::white);
     qApp->setPalette(pal);
 #ifdef Q_OS_WIN
