@@ -18,6 +18,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QColorDialog>
 
 namespace LapesEye {
 
@@ -255,6 +256,61 @@ void SettingsDialog::setup_ui() {
     ui_form->addRow("", m_histogram_visible);
     layout->addWidget(ui_box);
 
+    // ── Motyw kolorystyczny ───────────────────────────────────────────────────
+    auto* th_box  = new QGroupBox("Motyw kolorystyczny", this);
+    auto* th_lay  = new QVBoxLayout(th_box);
+
+    m_theme_slider_lbl = new QLabel(this);
+    m_theme_slider = new QSlider(Qt::Horizontal, this);
+    m_theme_slider->setRange(0, 100);
+    m_theme_slider->setToolTip("Od obecnego ciemnego wyglądu (lewo) do białego (prawo).\n"
+                               "Kolor tekstu dopasowuje się automatycznie.");
+    auto* sl_row = new QHBoxLayout();
+    sl_row->addWidget(new QLabel("Ciemny", this));
+    sl_row->addWidget(m_theme_slider, 1);
+    sl_row->addWidget(new QLabel("Biały", this));
+    th_lay->addWidget(m_theme_slider_lbl);
+    th_lay->addLayout(sl_row);
+
+    m_theme_custom = new QCheckBox("Własny kolor (zamiast suwaka)", this);
+    m_theme_color_btn = new QPushButton("Wybierz kolor…", this);
+    m_theme_color_btn->setFixedWidth(150);
+    m_theme_color_btn->setProperty("leye_no_theme", true);   // próbka musi pokazać prawdziwy kolor
+    m_theme_color_btn->setToolTip("Koło wyboru koloru oraz suwak jasności/ciemności.");
+    m_theme_bg     = new QCheckBox("Zmień tło interfejsu", this);
+    m_theme_accent = new QCheckBox("Zmień kolor akcentu (zaznaczenia, aktywne elementy)", this);
+    auto* reset_btn = new QPushButton("Przywróć domyślny", this);
+
+    auto* cu_row = new QHBoxLayout();
+    cu_row->addWidget(m_theme_custom);
+    cu_row->addStretch();
+    cu_row->addWidget(m_theme_color_btn);
+    th_lay->addLayout(cu_row);
+    th_lay->addWidget(m_theme_bg);
+    th_lay->addWidget(m_theme_accent);
+    auto* note = new QLabel("<small>Zmiana motywu wchodzi w życie po ponownym uruchomieniu programu.</small>", this);
+    note->setStyleSheet("color: #888;");
+    th_lay->addWidget(note);
+    th_lay->addWidget(reset_btn, 0, Qt::AlignLeft);
+    layout->addWidget(th_box);
+
+    QObject::connect(m_theme_slider, &QSlider::valueChanged, this, [this](int) { update_theme_ui(); });
+    QObject::connect(m_theme_custom, &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
+    QObject::connect(m_theme_bg,     &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
+    QObject::connect(m_theme_accent, &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
+    QObject::connect(m_theme_color_btn, &QPushButton::clicked, this, [this]() {
+        QColor c = QColorDialog::getColor(m_theme_color, this, "Kolor motywu");
+        if (c.isValid()) { m_theme_color = c; update_theme_ui(); }
+    });
+    QObject::connect(reset_btn, &QPushButton::clicked, this, [this]() {
+        m_theme_slider->setValue(0);
+        m_theme_custom->setChecked(false);
+        m_theme_bg->setChecked(true);
+        m_theme_accent->setChecked(true);
+        m_theme_color = QColor(0x2D, 0x7D, 0xD2);
+        update_theme_ui();
+    });
+
     // ── Zarządzanie kolorem ───────────────────────────────────────────────────
     auto* col_box  = new QGroupBox("Zarządzanie kolorem", this);
     auto* col_form = new QFormLayout(col_box);
@@ -363,6 +419,17 @@ void SettingsDialog::load_values() {
 
     m_histogram_visible->setChecked(histogram_visible());
 
+    // Motyw kolorystyczny
+    {
+        const Theme::Cfg tc = Theme::load();
+        m_theme_slider->setValue(tc.lighten);
+        m_theme_custom->setChecked(tc.custom);
+        m_theme_bg->setChecked(tc.bg);
+        m_theme_accent->setChecked(tc.accent);
+        m_theme_color = tc.color;
+        update_theme_ui();
+    }
+
     // Zarządzanie kolorem
     int cm = static_cast<int>(color_mode());
     for (int i = 0; i < m_color_mode->count(); ++i) {
@@ -378,6 +445,24 @@ void SettingsDialog::load_values() {
     m_editor_as_layer->setChecked(external_editor_as_layer());
 
     update_size_labels();
+}
+
+void SettingsDialog::update_theme_ui() {
+    const bool custom = m_theme_custom->isChecked();
+    m_theme_slider->setEnabled(!custom);
+    m_theme_color_btn->setEnabled(custom);
+    m_theme_bg->setEnabled(custom);
+    m_theme_accent->setEnabled(custom);
+    const int v = m_theme_slider->value();
+    m_theme_slider_lbl->setText(
+        custom ? QString("Jasność tła (suwak wyłączony — używany jest własny kolor)")
+               : (v == 0 ? QString("Jasność tła: obecna")
+                         : QString("Jasność tła: %1%").arg(v)));
+    // Próbka koloru na przycisku
+    const QColor fg = m_theme_color.lightnessF() > 0.55 ? Qt::black : Qt::white;
+    m_theme_color_btn->setStyleSheet(
+        QString("QPushButton { background: %1; color: %2; padding: 4px 8px; }")
+            .arg(m_theme_color.name(), fg.name()));
 }
 
 void SettingsDialog::update_size_labels() {
@@ -430,6 +515,22 @@ void SettingsDialog::save_values() {
     s.setValue("cache/preload_full", m_preload_full->isChecked());
     s.setValue("ui/histogram_visible", m_histogram_visible->isChecked());
     s.setValue("color/mode", m_color_mode->currentData().toInt());
+
+    // Motyw kolorystyczny
+    {
+        Theme::Cfg tc;
+        tc.custom  = m_theme_custom->isChecked();
+        tc.lighten = m_theme_slider->value();
+        tc.color   = m_theme_color;
+        tc.bg      = m_theme_bg->isChecked();
+        tc.accent  = m_theme_accent->isChecked();
+        const Theme::Cfg old_tc = Theme::load();
+        if (tc != old_tc) {
+            Theme::save(tc);
+            QMessageBox::information(this, "Motyw kolorystyczny",
+                "Nowy motyw zostanie zastosowany po ponownym uruchomieniu programu.");
+        }
+    }
 
     // Zewnętrzny edytor
     s.setValue("editor/path",     m_editor_path->text().trimmed());
