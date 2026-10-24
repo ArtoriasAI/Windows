@@ -6,6 +6,9 @@
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSlider>
+#include <QColor>
+#include "LapesEye/core/Theme.h"
 
 namespace LapesEye {
 
@@ -65,6 +68,16 @@ private:
 
     // Zarządzanie kolorem
     QComboBox*   m_color_mode         = nullptr;
+
+    // Motyw kolorystyczny
+    void         update_theme_ui();
+    QSlider*     m_theme_slider       = nullptr;
+    QLabel*      m_theme_slider_lbl   = nullptr;
+    QCheckBox*   m_theme_custom       = nullptr;
+    QPushButton* m_theme_color_btn    = nullptr;
+    QCheckBox*   m_theme_bg           = nullptr;
+    QCheckBox*   m_theme_accent       = nullptr;
+    QColor       m_theme_color        = QColor(0x2D, 0x7D, 0xD2);
 };
 
 
