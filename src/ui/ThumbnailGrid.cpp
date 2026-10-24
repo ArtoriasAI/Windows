@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <climits>
 #include "LapesEye/ui/ThumbnailGrid.h"
+#include "LapesEye/core/Theme.h"
 #include "LapesEye/core/PerfTimer.h"
 #include "LapesEye/ui/ThumbnailCanvas.h"
 #include "LapesEye/ui/RubberOverlay.h"
@@ -330,7 +331,7 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
     m_empty_cover->setAutoFillBackground(true);
     {
         QPalette p = m_empty_cover->palette();
-        p.setColor(QPalette::Window, QColor("#1e1e1e"));
+        p.setColor(QPalette::Window, Theme::c(QColor("#1e1e1e")));
         m_empty_cover->setPalette(p);
     }
     m_empty_cover->hide();
@@ -2737,7 +2738,7 @@ void ThumbnailGrid::start_drag_selected() {
     {
         QPainter p(&icon);
         p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(QColor("#2D7DD2"));
+        p.setBrush(Theme::c(QColor("#2D7DD2")));
         p.setPen(Qt::NoPen);
         p.drawEllipse(icon.rect().adjusted(2,2,-2,-2));
         p.setPen(Qt::white);
