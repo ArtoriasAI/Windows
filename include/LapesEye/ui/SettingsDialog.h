@@ -73,11 +73,12 @@ private:
     void         update_theme_ui();
     QSlider*     m_theme_slider       = nullptr;
     QLabel*      m_theme_slider_lbl   = nullptr;
-    QCheckBox*   m_theme_custom       = nullptr;
-    QPushButton* m_theme_color_btn    = nullptr;
-    QCheckBox*   m_theme_bg           = nullptr;
+    QCheckBox*   m_theme_bg_custom    = nullptr;
+    QPushButton* m_theme_bg_btn       = nullptr;
     QCheckBox*   m_theme_accent       = nullptr;
-    QColor       m_theme_color        = QColor(0x2D, 0x7D, 0xD2);
+    QPushButton* m_theme_acc_btn      = nullptr;
+    QColor       m_theme_bg_color     = QColor(0x1E, 0x1E, 0x1E);
+    QColor       m_theme_acc_color    = QColor(0x2D, 0x7D, 0xD2);
 };
 
 
