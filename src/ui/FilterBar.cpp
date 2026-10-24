@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FilterBar.h"
+#include "LapesEye/core/Theme.h"
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -209,8 +210,7 @@ void FilterBar::setup_ui() {
         "Nazwa ↑", "Nazwa ↓",
         "Data ↑",  "Data ↓",
         "Rozmiar ↑","Rozmiar ↓",
-        "Typ ↑",
-        "Ręcznie"
+        "Typ ↑"
     });
     m_sort_combo->setToolTip("Sortowanie");
     m_sort_combo->setMaximumWidth(110);
@@ -270,16 +270,6 @@ void FilterBar::emit_filter() {
     emit filter_changed(f);
 }
 
-int FilterBar::sort_mode() const {
-    return m_sort_combo ? m_sort_combo->currentIndex() : 0;
-}
-
-void FilterBar::set_sort_mode(int mode) {
-    if (!m_sort_combo || mode < 0 || mode >= m_sort_combo->count()) return;
-    QSignalBlocker blocker(m_sort_combo);   // bez ponownego wysyłania filtra
-    m_sort_combo->setCurrentIndex(mode);
-}
-
 // ─── Ikony trybów (rysowane programowo) ──────────────────────────────────────
 
 QPixmap FilterBar::make_single_icon() {
@@ -287,7 +277,7 @@ QPixmap FilterBar::make_single_icon() {
     pix.fill(Qt::transparent);
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(QColor("#bbb"), 1.5));
+    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
     p.setBrush(Qt::NoBrush);
     // Jeden prostokąt wypełniający całość
     p.drawRect(2, 2, 14, 14);
@@ -299,7 +289,7 @@ QPixmap FilterBar::make_split2_icon() {
     pix.fill(Qt::transparent);
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(QColor("#bbb"), 1.5));
+    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
     p.setBrush(Qt::NoBrush);
     // Prostokąt podzielony pionową kreską na 2 części
     p.drawRect(2, 2, 14, 14);
@@ -312,7 +302,7 @@ QPixmap FilterBar::make_split4_icon() {
     pix.fill(Qt::transparent);
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(QColor("#bbb"), 1.5));
+    p.setPen(QPen(Theme::c(QColor("#bbb")), 1.5));
     p.setBrush(Qt::NoBrush);
     // Prostokąt podzielony na 4 części
     p.drawRect(2, 2, 14, 14);
