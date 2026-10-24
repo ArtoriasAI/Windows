@@ -167,7 +167,7 @@ private:
             t.accent = true;
             t.acc_h  = col.hslHueF() < 0 ? 0.0 : col.hslHueF();
             t.acc_s  = col.hslSaturationF();
-            t.acc_l  = std::clamp(col.lightnessF(), 0.25, 0.75);
+            t.acc_l  = std::clamp(double(col.lightnessF()), 0.25, 0.75);
         }
         t.active = t.bg || t.accent;
     }
@@ -218,3 +218,4 @@ protected:
 };
 
 } // namespace LapesEye
+
