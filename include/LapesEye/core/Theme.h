@@ -123,6 +123,27 @@ public:
                       int(base.blue()  * (1 - k) + lc.blue()  * k));
     }
 
+    // Tło "bieżącego" elementu listy (np. otwarty folder w panelu bocznym).
+    // Ciemny motyw: ciemnoniebieski jak dawniej. Jasny motyw: jasny odcień
+    // akcentu, żeby ciemny tekst był czytelny.
+    static QColor soft_selection_bg() {
+        const S& t = st();
+        const QColor navy(0x1a, 0x3a, 0x5c);
+        if (!t.active || !t.bg || t.lb <= 0.5) return c(navy);
+        const QColor base = c(QColor(0x1e, 0x1e, 0x1e));
+        const QColor acc  = c(QColor(0x2D, 0x7D, 0xD2));
+        const double k = 0.40;
+        return QColor(int(base.red()   * (1 - k) + acc.red()   * k),
+                      int(base.green() * (1 - k) + acc.green() * k),
+                      int(base.blue()  * (1 - k) + acc.blue()  * k));
+    }
+    // Kolor tekstu na soft_selection_bg()
+    static QColor soft_selection_fg() {
+        const S& t = st();
+        if (!t.active || !t.bg || t.lb <= 0.5) return QColor(Qt::white);
+        return c(QColor(0xCC, 0xCC, 0xCC));
+    }
+
     // ── Arkusze stylów: podmień każdy #rgb / #rrggbb ─────────────────────────
     static QString css(const QString& in) {
         if (!st().active || in.isEmpty() || !in.contains('#')) return in;
