@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include "LapesEye/core/ColorManagement.h"
+#include "LapesEye/core/Theme.h"
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QDir>
@@ -38,6 +39,12 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("Lape's Eye");
     refresh_color_mode_cache();  // pre-load trybu kolorów dla wątków roboczych
     app.setOrganizationName("Lape");
+
+    // Motyw kolorystyczny (Ustawienia → Motyw kolorystyczny). Musi być przed
+    // utworzeniem okien. Filtr przelicza kolory w każdym setStyleSheet().
+    LapesEye::Theme::init();
+    if (LapesEye::Theme::active())
+        app.installEventFilter(new LapesEye::ThemeFilter(&app));
     app.setApplicationVersion("0.5.8");
     app.setDesktopFileName("lapes-eye");
 
