@@ -1,4 +1,5 @@
 #include "LapesEye/ui/PreviewPanel.h"
+#include "LapesEye/core/Theme.h"
 #include "LapesEye/core/ColorManagement.h"
 #include "LapesEye/core/MetaStore.h"
 #include <QTransform>
@@ -99,7 +100,7 @@ void PreviewImageWidget::reset_transform() {
 
 void PreviewImageWidget::paintEvent(QPaintEvent*) {
     QPainter p(this);
-    p.fillRect(rect(), QColor(0x1e, 0x1e, 0x1e));
+    p.fillRect(rect(), Theme::c(QColor(0x1e, 0x1e, 0x1e)));
     if (m_scaled.isNull()) return;
     int x = (width()  - m_scaled.width())  / 2 + (int)m_offset.x();
     int y = (height() - m_scaled.height()) / 2 + (int)m_offset.y();
