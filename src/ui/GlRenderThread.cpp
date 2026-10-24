@@ -1,4 +1,5 @@
 #include "LapesEye/ui/GlRenderThread.h"
+#include "LapesEye/core/Theme.h"
 #if LEYE_HAS_GL
 
 #include "LapesEye/core/PerfTimer.h"
@@ -417,7 +418,7 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
 
         // Ramka zaznaczenia
         if (selected) {
-            p.setPen(QPen(QColor(0x2d, 0x9c, 0xff), 2));
+            p.setPen(QPen(Theme::c(QColor(0x2d, 0x9c, 0xff)), 2));
             p.drawRect(1, 1, cw - 2, ch - 2);
         }
 
@@ -431,8 +432,8 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
             const auto& item = state.items[idx];
             // Tło dla nazwy — zakrywa starą nazwę przy zmianie
             QRect name_bg(0, ch - TC_NAME_H - TC_PAD - 1, cw, TC_NAME_H + 2);
-            p.fillRect(name_bg, QColor(0x28, 0x28, 0x28, 200));
-            p.setPen(selected ? Qt::white : QColor(0xcc, 0xcc, 0xcc));
+            p.fillRect(name_bg, Theme::c(QColor(0x28, 0x28, 0x28, 200)));
+            p.setPen(selected ? Qt::white : Theme::c(QColor(0xcc, 0xcc, 0xcc)));
             p.setFont(QFont("sans", 8));
             QRect name_r(TC_PAD, ch - TC_NAME_H - TC_PAD,
                          cw - 2 * TC_PAD, TC_NAME_H);
@@ -455,7 +456,7 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
                     switch(c) {
                         case ColorLabel::Red:    return QColor(0xdd,0x44,0x44);
                         case ColorLabel::Green:  return QColor(0x44,0xbb,0x44);
-                        case ColorLabel::Blue:   return QColor(0x44,0x88,0xdd);
+                        case ColorLabel::Blue:   return Theme::c(QColor(0x44,0x88,0xdd));
                         case ColorLabel::Yellow: return QColor(0xdd,0xbb,0x22);
                         case ColorLabel::Purple: return QColor(0xaa,0x44,0xcc);
                         default: return Qt::transparent;
@@ -569,8 +570,8 @@ void GlRenderThread::gl_draw_item(GL45* f, int idx, const GlRenderState& state) 
 
     // Tło
     QColor bg(0x28, 0x28, 0x28);
-    if (selected) bg = QColor(0x1a, 0x55, 0x9e);
-    else if (hovered) bg = QColor(0x3a, 0x3a, 0x3a);
+    if (selected) bg = Theme::c(QColor(0x1a, 0x55, 0x9e));
+    else if (hovered) bg = Theme::c(QColor(0x3a, 0x3a, 0x3a));
     gl_draw_quad_color(f, r.x(), r.y(), cw, ch,
                        bg.redF(), bg.greenF(), bg.blueF());
 
