@@ -1,4 +1,5 @@
 #include "LapesEye/ui/ThumbnailCanvas.h"
+#include "LapesEye/core/Theme.h"
 #if LEYE_HAS_GL
 #  include <QOpenGLContext>
 #  include <QOpenGLPaintDevice>
@@ -302,7 +303,7 @@ void ThumbnailCanvas::paintEvent(QPaintEvent* e) {
 #endif
     QPainter p(this);
     QRect clip = e->rect();
-    p.fillRect(clip, QColor(0x1e, 0x1e, 0x1e));
+    p.fillRect(clip, Theme::c(QColor(0x1e, 0x1e, 0x1e)));
     p.setRenderHint(QPainter::Antialiasing);
     // SmoothPixmapTransform ustawiane per-kafelek (off podczas scrollu)
 
@@ -333,13 +334,13 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
     // ── Tło kafelka ───────────────────────────────────────────────────────────
     QColor bg;
     if (selected) {
-        bg = QColor(0x2D, 0x7D, 0xD2);
+        bg = Theme::c(QColor(0x2D, 0x7D, 0xD2));
     } else if (item.meta_loaded && item.meta.color_label != ColorLabel::None) {
         QColor lc = tc_label_color(item.meta.color_label);
         bg = QColor(lc.red()/4, lc.green()/4, lc.blue()/4);
         if (hovered) bg = bg.lighter(140);
     } else {
-        bg = hovered ? QColor(0x3A, 0x3A, 0x3A) : QColor(0x28, 0x28, 0x28);
+        bg = hovered ? Theme::c(QColor(0x3A, 0x3A, 0x3A)) : Theme::c(QColor(0x28, 0x28, 0x28));
     }
     QPainterPath bgPath;
     bgPath.addRoundedRect(r, 6, 6);
@@ -353,7 +354,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
     QRect img_rect(img_x, img_y, avail_w, avail_h);
 
     if (item.file.is_dir) {
-        p.fillRect(img_rect, QColor(0x22, 0x22, 0x22));
+        p.fillRect(img_rect, Theme::c(QColor(0x22, 0x22, 0x22)));
         // Ikona folderu z zasobu — skaluje się z rozmiarem miniatury
         static QPixmap s_folder_icon;
         if (s_folder_icon.isNull())
@@ -369,8 +370,8 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
             p.drawPixmap(fx, fy, scaled);
         }
     } else if (item.thumb.isNull()) {
-        p.fillRect(img_rect, QColor(0x22, 0x22, 0x22));
-        p.setPen(QColor(0x44, 0x44, 0x44));
+        p.fillRect(img_rect, Theme::c(QColor(0x22, 0x22, 0x22)));
+        p.setPen(Theme::c(QColor(0x44, 0x44, 0x44)));
         QFont f = p.font(); f.setPixelSize(11); p.setFont(f);
         p.drawText(img_rect, Qt::AlignCenter, "⏳");
     } else {
@@ -415,7 +416,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
     if (m_rename_idx != idx) {
         int name_y = img_rect.bottom() + 3;
         QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, NAME_H);
-        p.setPen(selected ? Qt::white : QColor(0xCC, 0xCC, 0xCC));
+        p.setPen(selected ? Qt::white : Theme::c(QColor(0xCC, 0xCC, 0xCC)));
         QFont fn = p.font(); fn.setPixelSize(11); p.setFont(fn);
         QFontMetrics fm(fn);
         p.drawText(name_rect, Qt::AlignHCenter | Qt::AlignVCenter,
@@ -889,7 +890,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
         QFont nf=p.font(); nf.setPixelSize(11); nf.setBold(false); p.setFont(nf);
         QFontMetrics fm(nf);
         QRect nr(CELL_PAD, ir.bottom()+3, cw-2*CELL_PAD, NAME_H);
-        p.setPen(sel ? Qt::white : QColor(0xCC,0xCC,0xCC));
+        p.setPen(sel ? Qt::white : Theme::c(QColor(0xCC,0xCC,0xCC)));
         p.drawText(nr, Qt::AlignHCenter|Qt::AlignVCenter,
                    fm.elidedText(item.file.name, Qt::ElideMiddle, nr.width()));
         // Gwiazdki
@@ -969,12 +970,12 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
 
     // Tło
     QColor bg;
-    if (sel) bg = QColor(0x2D,0x7D,0xD2);
+    if (sel) bg = Theme::c(QColor(0x2D,0x7D,0xD2));
     else if (item.meta_loaded && item.meta.color_label!=ColorLabel::None) {
         QColor lc=gl_label_color(item.meta.color_label);
         bg=QColor(lc.red()/4,lc.green()/4,lc.blue()/4);
         if (hovered) bg=bg.lighter(140);
-    } else bg = hovered ? QColor(0x3A,0x3A,0x3A) : QColor(0x28,0x28,0x28);
+    } else bg = hovered ? Theme::c(QColor(0x3A,0x3A,0x3A)) : Theme::c(QColor(0x28,0x28,0x28));
 
     gl_draw_quad_color(f, r.x(),r.y(),r.width(),r.height(),
                        bg.redF(),bg.greenF(),bg.blueF());
