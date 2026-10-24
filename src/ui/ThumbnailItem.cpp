@@ -102,7 +102,7 @@ void ThumbnailItem::paintEvent(QPaintEvent*) {
     } else if (m_meta_loaded && m_meta.color_label != ColorLabel::None) {
         // Przyciemniona wersja koloru etykiety jako tło
         QColor lc = label_color(m_meta.color_label);
-        bg = QColor(lc.red()/4, lc.green()/4, lc.blue()/4);  // ~25% jasności
+        bg = Theme::label_bg(lc, 4);  // ~25% jasności
         if (m_hovered) bg = bg.lighter(140);
     } else {
         bg = m_hovered ? Theme::c(QColor(0x3A, 0x3A, 0x3A)) : Theme::c(QColor(0x28, 0x28, 0x28));
