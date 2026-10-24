@@ -337,7 +337,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
         bg = Theme::c(QColor(0x2D, 0x7D, 0xD2));
     } else if (item.meta_loaded && item.meta.color_label != ColorLabel::None) {
         QColor lc = tc_label_color(item.meta.color_label);
-        bg = QColor(lc.red()/4, lc.green()/4, lc.blue()/4);
+        bg = Theme::label_bg(lc, 4);
         if (hovered) bg = bg.lighter(140);
     } else {
         bg = hovered ? Theme::c(QColor(0x3A, 0x3A, 0x3A)) : Theme::c(QColor(0x28, 0x28, 0x28));
@@ -973,7 +973,7 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
     if (sel) bg = Theme::c(QColor(0x2D,0x7D,0xD2));
     else if (item.meta_loaded && item.meta.color_label!=ColorLabel::None) {
         QColor lc=gl_label_color(item.meta.color_label);
-        bg=QColor(lc.red()/4,lc.green()/4,lc.blue()/4);
+        bg=Theme::label_bg(lc, 4);
         if (hovered) bg=bg.lighter(140);
     } else bg = hovered ? Theme::c(QColor(0x3A,0x3A,0x3A)) : Theme::c(QColor(0x28,0x28,0x28));
 
