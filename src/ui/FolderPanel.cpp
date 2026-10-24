@@ -124,7 +124,7 @@ static QColor folder_label_color(const QString& path) {
     if (idx < 0 || idx >= labels.size()) return {};
     QColor lc = labels[idx].color;
     // Przyciemniona wersja — pasek boczny jest ciemny
-    return QColor(lc.red()/3, lc.green()/3, lc.blue()/3);
+    return Theme::label_bg(lc, 3);
 }
 
 void FolderPanel::add_place(const QString& icon, const QString& label,
