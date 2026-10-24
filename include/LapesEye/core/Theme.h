@@ -13,11 +13,6 @@
 // żółte etykiety, odznaki RAW itp.) NIE są zmieniane.
 //
 // Ustawienia (QSettings "Lape"/"LapesEye"):
-//   theme/custom   bool    false = suwak jasności, true = własny kolor
-//   theme/lighten  int     0..100  (0 = obecny wygląd, 100 = biały)
-//   theme/color    string  "#rrggbb" – własny kolor
-//   theme/bg       bool    własny kolor zmienia tło
-//   theme/accent   bool    własny kolor zmienia akcent
 // Zmiana działa po ponownym uruchomieniu programu.
 
 #include <QColor>
@@ -35,15 +30,18 @@ namespace LapesEye {
 class Theme {
 public:
     struct Cfg {
-        bool   custom  = false;
-        int    lighten = 0;                       // 0..100
-        QColor color   = QColor(0x2D, 0x7D, 0xD2);
-        bool   bg      = true;
-        bool   accent  = true;
+        // Tło: suwak (0 = obecne, 100 = białe) albo własny kolor
+        int    lighten    = 0;                       // 0..100
+        bool   bg_custom  = false;
+        QColor bg_color   = QColor(0x1E, 0x1E, 0x1E);
+        // Akcent (zaznaczenia, aktywne elementy)
+        bool   accent_on    = false;
+        QColor accent_color = QColor(0x2D, 0x7D, 0xD2);
 
         bool operator==(const Cfg& o) const {
-            return custom == o.custom && lighten == o.lighten &&
-                   color == o.color && bg == o.bg && accent == o.accent;
+            return lighten == o.lighten && bg_custom == o.bg_custom &&
+                   bg_color == o.bg_color && accent_on == o.accent_on &&
+                   accent_color == o.accent_color;
         }
         bool operator!=(const Cfg& o) const { return !(*this == o); }
     };
@@ -51,22 +49,23 @@ public:
     static Cfg load() {
         QSettings s("Lape", "LapesEye");
         Cfg c;
-        c.custom  = s.value("theme/custom",  false).toBool();
-        c.lighten = std::clamp(s.value("theme/lighten", 0).toInt(), 0, 100);
-        QColor col(s.value("theme/color", "#2d7dd2").toString());
-        if (col.isValid()) c.color = col;
-        c.bg      = s.value("theme/bg",     true).toBool();
-        c.accent  = s.value("theme/accent", true).toBool();
+        c.lighten   = std::clamp(s.value("theme/lighten", 0).toInt(), 0, 100);
+        c.bg_custom = s.value("theme/bg_custom", false).toBool();
+        QColor bc(s.value("theme/bg_color", "#1e1e1e").toString());
+        if (bc.isValid()) c.bg_color = bc;
+        c.accent_on = s.value("theme/accent_on", false).toBool();
+        QColor ac(s.value("theme/accent_color", "#2d7dd2").toString());
+        if (ac.isValid()) c.accent_color = ac;
         return c;
     }
 
     static void save(const Cfg& c) {
         QSettings s("Lape", "LapesEye");
-        s.setValue("theme/custom",  c.custom);
-        s.setValue("theme/lighten", c.lighten);
-        s.setValue("theme/color",   c.color.name());
-        s.setValue("theme/bg",      c.bg);
-        s.setValue("theme/accent",  c.accent);
+        s.setValue("theme/lighten",      c.lighten);
+        s.setValue("theme/bg_custom",    c.bg_custom);
+        s.setValue("theme/bg_color",     c.bg_color.name());
+        s.setValue("theme/accent_on",    c.accent_on);
+        s.setValue("theme/accent_color", c.accent_color.name());
     }
 
     // Wołać raz, w głównym wątku, po setOrganizationName/ApplicationName.
@@ -110,6 +109,20 @@ public:
 
     static QColor c(int r, int g, int b, int a = 255) { return c(QColor(r, g, b, a)); }
 
+    // Tło zaznaczonej etykiety koloru (miniatura / folder). W ciemnym motywie
+    // jak dawniej: kolor etykiety przyciemniony (lc / div). W jasnym motywie
+    // etykieta jest rozjaśniana — mieszana z tłem — żeby tekst był czytelny.
+    static QColor label_bg(const QColor& lc, int div) {
+        const S& t = st();
+        if (!t.active || !t.bg || t.lb <= 0.5)
+            return QColor(lc.red() / div, lc.green() / div, lc.blue() / div);
+        const QColor base = c(QColor(0x28, 0x28, 0x28));
+        const double k = 0.35;
+        return QColor(int(base.red()   * (1 - k) + lc.red()   * k),
+                      int(base.green() * (1 - k) + lc.green() * k),
+                      int(base.blue()  * (1 - k) + lc.blue()  * k));
+    }
+
     // ── Arkusze stylów: podmień każdy #rgb / #rrggbb ─────────────────────────
     static QString css(const QString& in) {
         if (!st().active || in.isEmpty() || !in.contains('#')) return in;
@@ -146,24 +159,19 @@ private:
     static void compute(const Cfg& cfg) {
         S& t = st();
         t = S{};
-        if (!cfg.custom) {
-            if (cfg.lighten <= 0) return;                  // wygląd domyślny
-            const double k = cfg.lighten / 100.0;
-            t.active = true;
-            t.bg     = true;
-            t.lb     = BG_L0 + (1.0 - BG_L0) * k;
-            return;
-        }
-        // własny kolor
-        const QColor col = cfg.color;
-        if (cfg.bg) {
+        if (cfg.bg_custom) {
+            const QColor col = cfg.bg_color;
             t.bg   = true;
             t.tint = true;
             t.lb   = col.lightnessF();
             t.bg_h = col.hslHueF() < 0 ? 0.0 : col.hslHueF();
             t.bg_s = col.hslSaturationF();
+        } else if (cfg.lighten > 0) {
+            t.bg = true;
+            t.lb = BG_L0 + (1.0 - BG_L0) * (cfg.lighten / 100.0);
         }
-        if (cfg.accent) {
+        if (cfg.accent_on) {
+            const QColor col = cfg.accent_color;
             t.accent = true;
             t.acc_h  = col.hslHueF() < 0 ? 0.0 : col.hslHueF();
             t.acc_s  = col.hslSaturationF();
@@ -218,4 +226,3 @@ protected:
 };
 
 } // namespace LapesEye
-
