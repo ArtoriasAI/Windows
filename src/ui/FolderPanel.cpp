@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FolderPanel.h"
+#include "LapesEye/core/Theme.h"
 #include <QPointer>
 #include "LapesEye/core/Collection.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
@@ -94,8 +95,8 @@ void FolderPanel::add_header(const QString& text) {
     QFont f = item->font();
     f.setPointSize(8); f.setBold(true);
     item->setFont(f);
-    item->setForeground(QColor(0x77,0x77,0x77));
-    item->setBackground(QColor(0x22,0x22,0x22));
+    item->setForeground(Theme::c(QColor(0x77,0x77,0x77)));
+    item->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
     item->setData(RoleType, "header");
 }
 
@@ -107,8 +108,8 @@ void FolderPanel::add_toggle_header(const QString& text, const QString& section_
     QFont f = item->font();
     f.setPointSize(8); f.setBold(true);
     item->setFont(f);
-    item->setForeground(QColor(0x99,0x99,0x99));
-    item->setBackground(QColor(0x22,0x22,0x22));
+    item->setForeground(Theme::c(QColor(0x99,0x99,0x99)));
+    item->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
     item->setData(RoleType, "header_toggle");
     item->setData(RolePath, section_id);
 }
@@ -136,7 +137,7 @@ void FolderPanel::add_place(const QString& icon, const QString& label,
     item->setData(RoleType, "place");
     item->setToolTip(path);
     if (current) {
-        item->setBackground(QColor(0x1a, 0x3a, 0x5c));
+        item->setBackground(Theme::c(QColor(0x1a, 0x3a, 0x5c)));
         item->setForeground(Qt::white);
     } else {
         QColor lc = folder_label_color(path);
@@ -160,7 +161,7 @@ void FolderPanel::add_expandable(const QString& icon, const QString& label,
     if (indent == 0) f.setBold(true);
     item->setFont(f);
     if (current) {
-        item->setBackground(QColor(0x1a, 0x3a, 0x5c));
+        item->setBackground(Theme::c(QColor(0x1a, 0x3a, 0x5c)));
         item->setForeground(Qt::white);
     } else {
         QColor lc = folder_label_color(path);
