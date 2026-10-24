@@ -19,6 +19,10 @@
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QColorDialog>
+#include <QTabWidget>
+#include <QScrollArea>
+#include <QGuiApplication>
+#include <QScreen>
 
 namespace LapesEye {
 
@@ -156,10 +160,35 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowModality(Qt::WindowModal);  // blokuje tylko okno główne, bez zaciemniania
     setup_ui();
     load_values();
+
+    // Nie wychodź poza ekran (np. skalowanie interfejsu 175%)
+    QScreen* scr = parent && parent->screen() ? parent->screen() : QGuiApplication::primaryScreen();
+    if (scr) {
+        const QRect a = scr->availableGeometry();
+        resize(qMin(sizeHint().width(),  int(a.width()  * 0.9)),
+               qMin(sizeHint().height(), int(a.height() * 0.85)));
+    }
 }
 
 void SettingsDialog::setup_ui() {
-    auto* layout = new QVBoxLayout(this);
+    // Zakładki — okno nie jest za wysokie na małych ekranach / przy skalowaniu 175%
+    auto* root = new QVBoxLayout(this);
+    auto* tabs = new QTabWidget(this);
+    root->addWidget(tabs, 1);
+    auto make_page = [&](const QString& title) -> QVBoxLayout* {
+        auto* page = new QWidget();
+        auto* lay  = new QVBoxLayout(page);
+        auto* sa   = new QScrollArea(this);
+        sa->setWidget(page);
+        sa->setWidgetResizable(true);
+        sa->setFrameShape(QFrame::NoFrame);
+        tabs->addTab(sa, title);
+        return lay;
+    };
+    QVBoxLayout* lay_cache = make_page("Bufory");
+    QVBoxLayout* lay_ui    = make_page("Interfejs");
+    QVBoxLayout* lay_ed    = make_page("Kolor i edytor");
+
 
     // ── Bufor RAM ──────────────────────────────────────────────────────────────
     auto* ram_box = new QGroupBox("Bufor RAM (QPixmapCache)", this);
@@ -179,7 +208,7 @@ void SettingsDialog::setup_ui() {
 
     ram_form->addRow("Rozmiar:", m_ram_cache_mb);
     ram_form->addRow("", m_ram_cache_label);
-    layout->addWidget(ram_box);
+    lay_cache->addWidget(ram_box);
 
     QObject::connect(m_ram_cache_mb, qOverload<int>(&QSpinBox::valueChanged),
                      this, &SettingsDialog::update_size_labels);
@@ -208,7 +237,7 @@ void SettingsDialog::setup_ui() {
     disk_form->addRow("Rozmiar:", m_disk_cache_mb);
     disk_form->addRow("", m_disk_cache_label);
     disk_form->addRow("Bieżący rozmiar:", m_disk_cache_info);
-    layout->addWidget(disk_box);
+    lay_cache->addWidget(disk_box);
 
     QObject::connect(m_disk_cache_mb, qOverload<int>(&QSpinBox::valueChanged),
                      this, &SettingsDialog::update_size_labels);
@@ -244,7 +273,7 @@ void SettingsDialog::setup_ui() {
     QObject::connect(clear_now_btn, &QPushButton::clicked,
                      this, &SettingsDialog::clear_disk_cache_now);
 
-    layout->addWidget(clear_box);
+    lay_cache->addWidget(clear_box);
 
     // ── Interfejs ─────────────────────────────────────────────────────────────
     auto* ui_box  = new QGroupBox("Interfejs", this);
@@ -254,7 +283,7 @@ void SettingsDialog::setup_ui() {
         "Histogram RGB pod miniaturą podglądu.\n"
         "Wyłącz jeśli wolisz mieć więcej miejsca na podgląd.");
     ui_form->addRow("", m_histogram_visible);
-    layout->addWidget(ui_box);
+    lay_ui->addWidget(ui_box);
 
     // ── Motyw kolorystyczny ───────────────────────────────────────────────────
     auto* th_box  = new QGroupBox("Motyw kolorystyczny", this);
@@ -300,7 +329,7 @@ void SettingsDialog::setup_ui() {
     th_lay->addWidget(note);
     auto* reset_btn = new QPushButton("Przywróć domyślny", this);
     th_lay->addWidget(reset_btn, 0, Qt::AlignLeft);
-    layout->addWidget(th_box);
+    lay_ui->addWidget(th_box);
 
     QObject::connect(m_theme_slider,     &QSlider::valueChanged, this, [this](int)  { update_theme_ui(); });
     QObject::connect(m_theme_bg_custom,  &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
@@ -346,7 +375,7 @@ void SettingsDialog::setup_ui() {
         "</small>", this);
     col_info->setTextFormat(Qt::RichText);
     col_form->addRow("", col_info);
-    layout->addWidget(col_box);
+    lay_ed->addWidget(col_box);
 
     // ── Zewnętrzny edytor ─────────────────────────────────────────────────────
     auto* ed_box  = new QGroupBox("Zewnętrzny edytor (E)", this);
@@ -392,7 +421,9 @@ void SettingsDialog::setup_ui() {
     ed_info->setTextFormat(Qt::RichText);
     ed_form->addRow("", ed_info);
 
-    layout->addWidget(ed_box);
+    lay_ed->addWidget(ed_box);
+
+    lay_cache->addStretch(); lay_ui->addStretch(); lay_ed->addStretch();
 
     // ── Przyciski ──────────────────────────────────────────────────────────────
     auto* btns = new QDialogButtonBox(
@@ -409,7 +440,7 @@ void SettingsDialog::setup_ui() {
     QObject::connect(btns->button(QDialogButtonBox::Apply),
                      &QPushButton::clicked, this, &SettingsDialog::apply);
 
-    layout->addWidget(btns);
+    root->addWidget(btns);
 }
 
 void SettingsDialog::load_values() {
