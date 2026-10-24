@@ -137,8 +137,8 @@ void FolderPanel::add_place(const QString& icon, const QString& label,
     item->setData(RoleType, "place");
     item->setToolTip(path);
     if (current) {
-        item->setBackground(Theme::c(QColor(0x1a, 0x3a, 0x5c)));
-        item->setForeground(Qt::white);
+        item->setBackground(Theme::soft_selection_bg());
+        item->setForeground(Theme::soft_selection_fg());
     } else {
         QColor lc = folder_label_color(path);
         if (lc.isValid()) item->setBackground(lc);
@@ -161,8 +161,8 @@ void FolderPanel::add_expandable(const QString& icon, const QString& label,
     if (indent == 0) f.setBold(true);
     item->setFont(f);
     if (current) {
-        item->setBackground(Theme::c(QColor(0x1a, 0x3a, 0x5c)));
-        item->setForeground(Qt::white);
+        item->setBackground(Theme::soft_selection_bg());
+        item->setForeground(Theme::soft_selection_fg());
     } else {
         QColor lc = folder_label_color(path);
         if (lc.isValid()) item->setBackground(lc);
