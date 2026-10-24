@@ -1,4 +1,5 @@
 #include "LapesEye/ui/HistogramWidget.h"
+#include "LapesEye/core/Theme.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <algorithm>
@@ -57,10 +58,10 @@ void HistogramWidget::paintEvent(QPaintEvent*) {
     p.setRenderHint(QPainter::Antialiasing, false);
 
     // Tło
-    p.fillRect(rect(), QColor("#1a1a1a"));
+    p.fillRect(rect(), Theme::c(QColor("#1a1a1a")));
 
     if (!m_has_data) {
-        p.setPen(QColor("#444"));
+        p.setPen(Theme::c(QColor("#444")));
         p.drawText(rect(), Qt::AlignCenter, "—");
         return;
     }
@@ -96,7 +97,7 @@ void HistogramWidget::paintEvent(QPaintEvent*) {
     p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 
     // Ramka
-    p.setPen(QColor("#333"));
+    p.setPen(Theme::c(QColor("#333")));
     p.drawRect(rect().adjusted(0, 0, -1, -1));
 
     // Linie pomocnicze (co 64 wartości) — subtelne
