@@ -1,4 +1,5 @@
 #include "LapesEye/ui/ThumbnailItem.h"
+#include "LapesEye/core/Theme.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
 
 #include <QPainter>
@@ -97,14 +98,14 @@ void ThumbnailItem::paintEvent(QPaintEvent*) {
     // ── Tło — kolor zależy od etykiety ───────────────────────────────────────
     QColor bg;
     if (m_selected && !s_drag_active) {
-        bg = QColor(0x2D, 0x7D, 0xD2);
+        bg = Theme::c(QColor(0x2D, 0x7D, 0xD2));
     } else if (m_meta_loaded && m_meta.color_label != ColorLabel::None) {
         // Przyciemniona wersja koloru etykiety jako tło
         QColor lc = label_color(m_meta.color_label);
         bg = QColor(lc.red()/4, lc.green()/4, lc.blue()/4);  // ~25% jasności
         if (m_hovered) bg = bg.lighter(140);
     } else {
-        bg = m_hovered ? QColor(0x3A, 0x3A, 0x3A) : QColor(0x28, 0x28, 0x28);
+        bg = m_hovered ? Theme::c(QColor(0x3A, 0x3A, 0x3A)) : Theme::c(QColor(0x28, 0x28, 0x28));
     }
     QPainterPath bgPath;
     bgPath.addRoundedRect(total, 6, 6);
@@ -113,15 +114,15 @@ void ThumbnailItem::paintEvent(QPaintEvent*) {
     // ── Folder lub zdjęcie ───────────────────────────────────────────────────
     if (m_file.is_dir) {
         // Ikona folderu
-        p.fillRect(img_rect, QColor(0x1A, 0x1A, 0x1A));
+        p.fillRect(img_rect, Theme::c(QColor(0x1A, 0x1A, 0x1A)));
         QFont f = p.font();
         f.setPixelSize(qMin(m_thumb_size * 2 / 3, 96));
         p.setFont(f);
         p.setPen(QColor(0xF0, 0xC0, 0x20));
         p.drawText(img_rect, Qt::AlignCenter, "📁");
     } else if (m_thumb.isNull()) {
-        p.fillRect(img_rect, QColor(0x1A, 0x1A, 0x1A));
-        p.setPen(QColor(0x44, 0x44, 0x44));
+        p.fillRect(img_rect, Theme::c(QColor(0x1A, 0x1A, 0x1A)));
+        p.setPen(Theme::c(QColor(0x44, 0x44, 0x44)));
         p.drawText(img_rect, Qt::AlignCenter, "⏳");
     } else {
         QPixmap scaled = m_thumb.scaled(img_rect.size(),
@@ -154,7 +155,7 @@ void ThumbnailItem::paintEvent(QPaintEvent*) {
     // ── Nazwa pliku (nie rysuj gdy aktywny rename edit) ──────────────────────
     if (!m_rename_edit) {
         QRect name_rect(PAD, img_rect.bottom() + 3, total.width() - 2*PAD, NAME_H);
-        p.setPen(m_selected ? Qt::white : QColor(0xCC, 0xCC, 0xCC));
+        p.setPen(m_selected ? Qt::white : Theme::c(QColor(0xCC, 0xCC, 0xCC)));
         QFont fn = p.font();
         fn.setPixelSize(11);
         p.setFont(fn);
@@ -176,7 +177,7 @@ void ThumbnailItem::draw_stars(QPainter& p, const QRect& rect, int rating) {
     int y = rect.y() + (rect.height() - sw) / 2;
     QFont f = p.font(); f.setPixelSize(9); p.setFont(f);
     for (int i = 0; i < 5; ++i) {
-        p.setPen(i < rating ? QColor(0xF0, 0xC0, 0x20) : QColor(0x44, 0x44, 0x44));
+        p.setPen(i < rating ? QColor(0xF0, 0xC0, 0x20) : Theme::c(QColor(0x44, 0x44, 0x44)));
         p.drawText(QRect(x + i*sw, y, sw, sw), Qt::AlignCenter, "★");
     }
 }
