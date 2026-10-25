@@ -69,17 +69,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     resize(1400, 900);
 
     qApp->setStyle("Fusion");
-    QPalette pal;
-    pal.setColor(QPalette::Window,          Theme::c(QColor(0x1E, 0x1E, 0x1E)));
-    pal.setColor(QPalette::WindowText,      Theme::c(QColor(0xCC, 0xCC, 0xCC)));
-    pal.setColor(QPalette::Base,            Theme::c(QColor(0x28, 0x28, 0x28)));
-    pal.setColor(QPalette::AlternateBase,   Theme::c(QColor(0x24, 0x24, 0x24)));
-    pal.setColor(QPalette::Text,            Theme::c(QColor(0xCC, 0xCC, 0xCC)));
-    pal.setColor(QPalette::Button,          Theme::c(QColor(0x38, 0x38, 0x38)));
-    pal.setColor(QPalette::ButtonText,      Theme::c(QColor(0xCC, 0xCC, 0xCC)));
-    pal.setColor(QPalette::Highlight,       Theme::c(QColor(0x2D, 0x7D, 0xD2)));
-    pal.setColor(QPalette::HighlightedText, Qt::white);
-    qApp->setPalette(pal);
+    Theme::apply_palette();
 #ifdef Q_OS_WIN
     setStyleSheet(
         "QMainWindow { background: #1e1e1e; }"
