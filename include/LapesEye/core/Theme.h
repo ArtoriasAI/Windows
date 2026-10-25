@@ -110,6 +110,12 @@ public:
     }
 
     static void reapply_all() {
+        // Jedno przerysowanie na koniec zamiast setek w trakcie
+        std::vector<QPointer<QWidget>> tops;
+        for (QWidget* w : QApplication::topLevelWidgets()) {
+            tops.emplace_back(w);
+            w->setUpdatesEnabled(false);
+        }
         apply_palette();
         const auto widgets = QApplication::allWidgets();
         for (QWidget* w : widgets) {
@@ -131,7 +137,8 @@ public:
         const auto copy = v;
         for (const auto& x : copy)
             if (!x.ctx.isNull()) x.fn();
-        for (QWidget* w : QApplication::allWidgets()) w->update();
+        for (auto& w : tops)
+            if (w) w->setUpdatesEnabled(true);     // przerysuje całe okno raz
     }
 
 
