@@ -324,7 +324,7 @@ void SettingsDialog::setup_ui() {
     ac_row->addWidget(m_theme_acc_btn);
     th_lay->addLayout(ac_row);
 
-    auto* note = new QLabel("<small>Zmiana motywu wchodzi w życie po ponownym uruchomieniu programu.</small>", this);
+    auto* note = new QLabel("<small>Zmiany widać od razu. „Anuluj” cofa podgląd, „Zastosuj”/„OK” zapisuje motyw.</small>", this);
     note->setStyleSheet("color: #888;");
     th_lay->addWidget(note);
     auto* reset_btn = new QPushButton("Przywróć domyślny", this);
@@ -334,13 +334,18 @@ void SettingsDialog::setup_ui() {
     QObject::connect(m_theme_slider,     &QSlider::valueChanged, this, [this](int)  { update_theme_ui(); });
     QObject::connect(m_theme_bg_custom,  &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
     QObject::connect(m_theme_accent,     &QCheckBox::toggled,    this, [this](bool) { update_theme_ui(); });
-    QObject::connect(m_theme_bg_btn, &QPushButton::clicked, this, [this]() {
-        QColor c = QColorDialog::getColor(m_theme_bg_color, this, "Kolor tła");
-        if (c.isValid()) { m_theme_bg_color = c; update_theme_ui(); }
-    });
-    QObject::connect(m_theme_acc_btn, &QPushButton::clicked, this, [this]() {
-        QColor c = QColorDialog::getColor(m_theme_acc_color, this, "Kolor akcentu");
-        if (c.isValid()) { m_theme_acc_color = c; update_theme_ui(); }
+    QObject::connect(m_theme_bg_btn, &QPushButton::clicked, this,
+                     [this]() { pick_theme_color(m_theme_bg_color,  "Kolor tła"); });
+    QObject::connect(m_theme_acc_btn, &QPushButton::clicked, this,
+                     [this]() { pick_theme_color(m_theme_acc_color, "Kolor akcentu"); });
+    m_theme_timer = new QTimer(this);
+    m_theme_timer->setSingleShot(true);
+    m_theme_timer->setInterval(60);   // łączy szybkie ruchy suwaka w jedno odświeżenie
+    QObject::connect(m_theme_timer, &QTimer::timeout, this,
+                     [this]() { Theme::apply(theme_cfg_from_ui()); });
+    // Anuluj / zamknięcie okna: cofnij podgląd do zapisanego motywu
+    QObject::connect(this, &QDialog::rejected, this, [this]() {
+        if (theme_cfg_from_ui() != m_theme_saved) Theme::apply(m_theme_saved);
     });
     QObject::connect(reset_btn, &QPushButton::clicked, this, [this]() {
         m_theme_slider->setValue(0);
@@ -463,13 +468,16 @@ void SettingsDialog::load_values() {
 
     // Motyw kolorystyczny
     {
+        m_theme_loading = true;
         const Theme::Cfg tc = Theme::load();
+        m_theme_saved = tc;
         m_theme_slider->setValue(tc.lighten);
         m_theme_bg_custom->setChecked(tc.bg_custom);
         m_theme_bg_color = tc.bg_color;
         m_theme_accent->setChecked(tc.accent_on);
         m_theme_acc_color = tc.accent_color;
         update_theme_ui();
+        m_theme_loading = false;
     }
 
     // Zarządzanie kolorem
@@ -507,6 +515,38 @@ void SettingsDialog::update_theme_ui() {
                       : QString("Jasność tła: %1%").arg(v)));
     m_theme_bg_btn->setStyleSheet(leye_swatch_css(m_theme_bg_color));
     m_theme_acc_btn->setStyleSheet(leye_swatch_css(m_theme_acc_color));
+    schedule_theme_preview();
+}
+
+Theme::Cfg SettingsDialog::theme_cfg_from_ui() const {
+    Theme::Cfg tc;
+    tc.lighten      = m_theme_slider->value();
+    tc.bg_custom    = m_theme_bg_custom->isChecked();
+    tc.bg_color     = m_theme_bg_color;
+    tc.accent_on    = m_theme_accent->isChecked();
+    tc.accent_color = m_theme_acc_color;
+    return tc;
+}
+
+void SettingsDialog::schedule_theme_preview() {
+    if (m_theme_loading || !m_theme_timer) return;
+    m_theme_timer->start();
+}
+
+// Wybór koloru z podglądem na żywo; Anuluj w oknie koloru przywraca poprzedni.
+void SettingsDialog::pick_theme_color(QColor& target, const QString& title) {
+    const QColor before = target;
+    QColorDialog dlg(before, this);
+    dlg.setWindowTitle(title);
+    QObject::connect(&dlg, &QColorDialog::currentColorChanged, this,
+                     [this, &target](const QColor& c) {
+        if (c.isValid()) { target = c; update_theme_ui(); }
+    });
+    if (dlg.exec() == QDialog::Accepted && dlg.currentColor().isValid())
+        target = dlg.currentColor();
+    else
+        target = before;
+    update_theme_ui();
 }
 
 void SettingsDialog::update_size_labels() {
@@ -562,17 +602,11 @@ void SettingsDialog::save_values() {
 
     // Motyw kolorystyczny
     {
-        Theme::Cfg tc;
-        tc.lighten      = m_theme_slider->value();
-        tc.bg_custom    = m_theme_bg_custom->isChecked();
-        tc.bg_color     = m_theme_bg_color;
-        tc.accent_on    = m_theme_accent->isChecked();
-        tc.accent_color = m_theme_acc_color;
-        const Theme::Cfg old_tc = Theme::load();
-        if (tc != old_tc) {
+        const Theme::Cfg tc = theme_cfg_from_ui();
+        if (tc != m_theme_saved) {
             Theme::save(tc);
-            QMessageBox::information(this, "Motyw kolorystyczny",
-                "Nowy motyw zostanie zastosowany po ponownym uruchomieniu programu.");
+            m_theme_saved = tc;
+            Theme::apply(tc);       // na żywo — bez restartu
         }
     }
 
