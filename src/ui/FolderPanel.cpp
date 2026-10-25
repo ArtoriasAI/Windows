@@ -91,6 +91,7 @@ FolderPanel::FolderPanel(QWidget* parent) : QWidget(parent) {
     m_favorites   = s.value("favorites").toStringList();
     m_recent_dirs = s.value("recent_dirs").toStringList();
     m_recent_open = s.value("recent_open", false).toBool();
+    m_places_open = s.value("places_open", true).toBool();
 
     build_list();
 
@@ -310,8 +311,9 @@ void FolderPanel::build_list() {
     }
 
     // ── Miejsca ───────────────────────────────────────────────────────────────
-    add_header("  Miejsca");
+    add_toggle_header("Miejsca", "places", m_places_open);
     auto pl = [&](const QString& ic, const QString& lb, const QString& p) {
+        if (!m_places_open) return;      // sekcja zwinięta
         add_place(ic, lb, p, 0, p == m_current_path);
     };
     pl("🏠","Katalog domowy", QDir::homePath());
@@ -471,6 +473,10 @@ void FolderPanel::on_item_clicked(QListWidgetItem* item) {
             m_recent_open = !m_recent_open;
             QSettings s("Lape", "LapesEye");
             s.setValue("recent_open", m_recent_open);
+        } else if (path == "places") {
+            m_places_open = !m_places_open;
+            QSettings s("Lape", "LapesEye");
+            s.setValue("places_open", m_places_open);
         }
         build_list();
         return;
