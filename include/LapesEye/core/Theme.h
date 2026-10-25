@@ -178,18 +178,27 @@ public:
 
     static QColor c(int r, int g, int b, int a = 255) { return c(QColor(r, g, b, a)); }
 
+    // Płynne przejście ciemny→jasny motyw (zamiast skoku przy jasności 50%):
+    // 0 = pełny ciemny wygląd, 1 = pełny jasny; pasmo przejściowe 0.44–0.62.
+    static double flip_t(double lb) {
+        double x = std::clamp((lb - 0.44) / (0.62 - 0.44), 0.0, 1.0);
+        return x * x * (3.0 - 2.0 * x);
+    }
+    static QColor mixc(const QColor& a, const QColor& b, double t) {
+        return QColor(int(a.red()   * (1 - t) + b.red()   * t + 0.5),
+                      int(a.green() * (1 - t) + b.green() * t + 0.5),
+                      int(a.blue()  * (1 - t) + b.blue()  * t + 0.5));
+    }
+
     // Tło zaznaczonej etykiety koloru (miniatura / folder). W ciemnym motywie
     // jak dawniej: kolor etykiety przyciemniony (lc / div). W jasnym motywie
     // etykieta jest rozjaśniana — mieszana z tłem — żeby tekst był czytelny.
     static QColor label_bg(const QColor& lc, int div) {
         const S& t = st();
-        if (!t.active || !t.bg || t.lb <= 0.5)
-            return QColor(lc.red() / div, lc.green() / div, lc.blue() / div);
-        const QColor base = c(QColor(0x28, 0x28, 0x28));
-        const double k = 0.35;
-        return QColor(int(base.red()   * (1 - k) + lc.red()   * k),
-                      int(base.green() * (1 - k) + lc.green() * k),
-                      int(base.blue()  * (1 - k) + lc.blue()  * k));
+        const QColor dark(lc.red() / div, lc.green() / div, lc.blue() / div);
+        if (!t.active || !t.bg) return dark;
+        const QColor light = mixc(c(QColor(0x28, 0x28, 0x28)), lc, 0.35);
+        return mixc(dark, light, flip_t(t.lb));
     }
 
     // Tło "bieżącego" elementu listy (np. otwarty folder w panelu bocznym).
@@ -197,20 +206,17 @@ public:
     // akcentu, żeby ciemny tekst był czytelny.
     static QColor soft_selection_bg() {
         const S& t = st();
-        const QColor navy(0x1a, 0x3a, 0x5c);
-        if (!t.active || !t.bg || t.lb <= 0.5) return c(navy);
-        const QColor base = c(QColor(0x1e, 0x1e, 0x1e));
-        const QColor acc  = c(QColor(0x2D, 0x7D, 0xD2));
-        const double k = 0.40;
-        return QColor(int(base.red()   * (1 - k) + acc.red()   * k),
-                      int(base.green() * (1 - k) + acc.green() * k),
-                      int(base.blue()  * (1 - k) + acc.blue()  * k));
+        const QColor dark = c(QColor(0x1a, 0x3a, 0x5c));
+        if (!t.active || !t.bg) return dark;
+        const QColor light = mixc(c(QColor(0x1e, 0x1e, 0x1e)),
+                                  c(QColor(0x2D, 0x7D, 0xD2)), 0.40);
+        return mixc(dark, light, flip_t(t.lb));
     }
     // Kolor tekstu na soft_selection_bg()
     static QColor soft_selection_fg() {
         const S& t = st();
-        if (!t.active || !t.bg || t.lb <= 0.5) return QColor(Qt::white);
-        return c(QColor(0xCC, 0xCC, 0xCC));
+        if (!t.active || !t.bg) return QColor(Qt::white);
+        return mixc(QColor(Qt::white), c(QColor(0xCC, 0xCC, 0xCC)), flip_t(t.lb));
     }
 
     // ── Arkusze stylów: podmień każdy #rgb / #rrggbb ─────────────────────────
@@ -290,12 +296,14 @@ private:
     // Skala jasności: 0x1e (obecne tło) → lb. Ciemne motywy zachowują kierunek
     // (tekst jaśniejszy od tła), jasne odwracają go (tekst ciemniejszy od tła).
     static double map_lightness(double g, double lb) {
-        if (lb <= 0.5) {
-            if (g < BG_L0) return lb * (g / BG_L0);
-            return lb + (g - BG_L0) * (1.0 - lb) / (1.0 - BG_L0);
-        }
-        if (g < BG_L0) return lb - (BG_L0 - g) * 0.5;
-        return lb - (g - BG_L0) * (lb - 0.05) / (1.0 - BG_L0);
+        // Dwie skale: ciemna (tekst jaśniejszy od tła) i jasna (tekst ciemniejszy).
+        // W paśmie przejściowym obie są mieszane, więc kolor liter zmienia się płynnie.
+        const double dark = (g < BG_L0) ? lb * (g / BG_L0)
+                                        : lb + (g - BG_L0) * (1.0 - lb) / (1.0 - BG_L0);
+        const double light = (g < BG_L0) ? lb - (BG_L0 - g) * 0.5
+                                         : lb - (g - BG_L0) * (lb - 0.05) / (1.0 - BG_L0);
+        const double k = flip_t(lb);
+        return dark * (1.0 - k) + light * k;
     }
 };
 
