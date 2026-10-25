@@ -340,9 +340,15 @@ void SettingsDialog::setup_ui() {
                      [this]() { pick_theme_color(m_theme_acc_color, "Kolor akcentu"); });
     m_theme_timer = new QTimer(this);
     m_theme_timer->setSingleShot(true);
-    m_theme_timer->setInterval(60);   // łączy szybkie ruchy suwaka w jedno odświeżenie
+    m_theme_timer->setInterval(40);   // maks. ~25 odświeżeń/s podczas przeciągania suwaka
     QObject::connect(m_theme_timer, &QTimer::timeout, this,
-                     [this]() { Theme::apply(theme_cfg_from_ui()); });
+                     [this]() {
+        if (m_theme_pending) {            // w trakcie czekania były kolejne zmiany
+            m_theme_pending = false;
+            Theme::apply(theme_cfg_from_ui());
+            m_theme_timer->start();
+        }
+    });
     // Anuluj / zamknięcie okna: cofnij podgląd do zapisanego motywu
     QObject::connect(this, &QDialog::rejected, this, [this]() {
         if (theme_cfg_from_ui() != m_theme_saved) Theme::apply(m_theme_saved);
@@ -530,6 +536,9 @@ Theme::Cfg SettingsDialog::theme_cfg_from_ui() const {
 
 void SettingsDialog::schedule_theme_preview() {
     if (m_theme_loading || !m_theme_timer) return;
+    if (m_theme_timer->isActive()) { m_theme_pending = true; return; }
+    // Pierwsza zmiana — od razu (bez opóźnienia), kolejne co ~40 ms
+    Theme::apply(theme_cfg_from_ui());
     m_theme_timer->start();
 }
 
