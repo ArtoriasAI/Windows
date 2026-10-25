@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QColor>
+#include <QTimer>
 #include "LapesEye/core/Theme.h"
 
 namespace LapesEye {
@@ -71,6 +72,12 @@ private:
 
     // Motyw kolorystyczny
     void         update_theme_ui();
+    Theme::Cfg   theme_cfg_from_ui() const;
+    void         schedule_theme_preview();
+    void         pick_theme_color(QColor& target, const QString& title);
+    QTimer*      m_theme_timer        = nullptr;
+    bool         m_theme_loading      = true;
+    Theme::Cfg   m_theme_saved;
     QSlider*     m_theme_slider       = nullptr;
     QLabel*      m_theme_slider_lbl   = nullptr;
     QCheckBox*   m_theme_bg_custom    = nullptr;
