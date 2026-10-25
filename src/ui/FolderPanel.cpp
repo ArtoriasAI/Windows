@@ -1,5 +1,6 @@
 #include "LapesEye/ui/FolderPanel.h"
 #include "LapesEye/core/Theme.h"
+#include <QScrollBar>
 #include <QPointer>
 #include "LapesEye/core/Collection.h"
 #include "LapesEye/ui/ColorLabelEditor.h"
@@ -30,6 +31,28 @@ static const int RoleArrow   = Qt::UserRole + 2; // rect obszaru strzałki
 // type: "header", "header_toggle", "place", "expandable"
 
 FolderPanel::FolderPanel(QWidget* parent) : QWidget(parent) {
+    // Motyw na żywo: kolory elementów listy są ustawiane przy budowaniu listy
+    Theme::subscribe(this, [this]() {
+        // Tylko przekoloruj istniejące elementy — bez przebudowy listy
+        for (int i = 0; i < m_list->count(); ++i) {
+            auto* it = m_list->item(i);
+            const QString type = it->data(RoleType).toString();
+            if (type == "header") {
+                it->setForeground(Theme::c(QColor(0x77,0x77,0x77)));
+                it->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
+            } else if (type == "header_toggle") {
+                it->setForeground(Theme::c(QColor(0x99,0x99,0x99)));
+                it->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
+            } else if (it->data(Qt::UserRole + 11).toBool()) {          // bieżący folder
+                it->setBackground(Theme::soft_selection_bg());
+                it->setForeground(Theme::soft_selection_fg());
+            } else if (type == "place" || type == "expandable") {
+                const QColor raw = it->data(Qt::UserRole + 12).value<QColor>();
+                if (raw.isValid()) it->setBackground(Theme::label_bg(raw, 3));
+            }
+        }
+        m_list->viewport()->update();
+    });
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
 
@@ -123,8 +146,7 @@ static QColor folder_label_color(const QString& path) {
     auto labels = LabelConfig::load();
     if (idx < 0 || idx >= labels.size()) return {};
     QColor lc = labels[idx].color;
-    // Przyciemniona wersja — pasek boczny jest ciemny
-    return Theme::label_bg(lc, 3);
+    return lc;   // surowy kolor etykiety; przyciemnienie robi Theme::label_bg
 }
 
 void FolderPanel::add_place(const QString& icon, const QString& label,
@@ -139,9 +161,13 @@ void FolderPanel::add_place(const QString& icon, const QString& label,
     if (current) {
         item->setBackground(Theme::soft_selection_bg());
         item->setForeground(Theme::soft_selection_fg());
+        item->setData(Qt::UserRole + 11, true);   // bieżący — do przekolorowania
     } else {
         QColor lc = folder_label_color(path);
-        if (lc.isValid()) item->setBackground(lc);
+        if (lc.isValid()) {
+            item->setData(Qt::UserRole + 12, lc);      // surowy kolor etykiety
+            item->setBackground(Theme::label_bg(lc, 3));
+        }
     }
 }
 
@@ -163,9 +189,13 @@ void FolderPanel::add_expandable(const QString& icon, const QString& label,
     if (current) {
         item->setBackground(Theme::soft_selection_bg());
         item->setForeground(Theme::soft_selection_fg());
+        item->setData(Qt::UserRole + 11, true);   // bieżący — do przekolorowania
     } else {
         QColor lc = folder_label_color(path);
-        if (lc.isValid()) item->setBackground(lc);
+        if (lc.isValid()) {
+            item->setData(Qt::UserRole + 12, lc);      // surowy kolor etykiety
+            item->setBackground(Theme::label_bg(lc, 3));
+        }
     }
 }
 
