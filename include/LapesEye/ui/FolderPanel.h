@@ -61,6 +61,7 @@ private:
     QStringList   m_recent_dirs;
     QSet<QString> m_expanded;
     bool          m_recent_open  = false;
+    bool          m_places_open  = true;    // sekcja "Miejsca" rozwinięta
     bool          m_setting_path = false;  // guard: blokuj folder_selected podczas set_current_path
     QTimer*       m_dev_timer    = nullptr;
     QStringList   m_last_mounts;
