@@ -22,6 +22,12 @@
 #include <QObject>
 #include <QEvent>
 #include <QWidget>
+#include <QApplication>
+#include <QPalette>
+#include <QPointer>
+#include <atomic>
+#include <functional>
+#include <vector>
 #include <algorithm>
 #include <cmath>
 
@@ -72,6 +78,62 @@ public:
     static void init() { compute(load()); }
 
     static bool active() { return st().active; }
+
+    // ── Zmiana motywu na żywo ───────────────────────────────────────────────
+    // Przelicza kolory, ustawia paletę, odświeża arkusze stylów wszystkich
+    // widgetów i powiadamia subskrybentów (panele, które trzymają kolory
+    // w ikonach / elementach list).
+    static void apply(const Cfg& cfg) {
+        compute(cfg);
+        reapply_all();
+    }
+
+    // Komponent rejestruje funkcję odświeżającą swoje kolory po zmianie motywu.
+    // Wpis znika sam, gdy ctx zostanie zniszczony.
+    static void subscribe(QObject* ctx, std::function<void()> fn) {
+        subs().push_back({ QPointer<QObject>(ctx), std::move(fn) });
+    }
+
+    // Paleta aplikacji (widgety bez własnego arkusza stylów).
+    static void apply_palette() {
+        QPalette pal;
+        pal.setColor(QPalette::Window,          c(QColor(0x1E, 0x1E, 0x1E)));
+        pal.setColor(QPalette::WindowText,      c(QColor(0xCC, 0xCC, 0xCC)));
+        pal.setColor(QPalette::Base,            c(QColor(0x28, 0x28, 0x28)));
+        pal.setColor(QPalette::AlternateBase,   c(QColor(0x24, 0x24, 0x24)));
+        pal.setColor(QPalette::Text,            c(QColor(0xCC, 0xCC, 0xCC)));
+        pal.setColor(QPalette::Button,          c(QColor(0x38, 0x38, 0x38)));
+        pal.setColor(QPalette::ButtonText,      c(QColor(0xCC, 0xCC, 0xCC)));
+        pal.setColor(QPalette::Highlight,       c(QColor(0x2D, 0x7D, 0xD2)));
+        pal.setColor(QPalette::HighlightedText, Qt::white);
+        qApp->setPalette(pal);
+    }
+
+    static void reapply_all() {
+        apply_palette();
+        const auto widgets = QApplication::allWidgets();
+        for (QWidget* w : widgets) {
+            if (w->property("leye_no_theme").toBool()) continue;
+            if (!w->property("_leye_css_src").isValid()) continue;
+            if (w->styleSheet().isEmpty()) {            // arkusz usunięty w międzyczasie
+                w->setProperty("_leye_css_src", QVariant());
+                w->setProperty("_leye_css_out", QVariant());
+                continue;
+            }
+            const QString out = css(w->property("_leye_css_src").toString());
+            w->setProperty("_leye_css_out", out);
+            if (w->styleSheet() != out) w->setStyleSheet(out);
+        }
+        // subskrybenci (kopia — callback może rejestrować kolejnych)
+        auto& v = subs();
+        v.erase(std::remove_if(v.begin(), v.end(),
+                    [](const Sub& x) { return x.ctx.isNull(); }), v.end());
+        const auto copy = v;
+        for (const auto& x : copy)
+            if (!x.ctx.isNull()) x.fn();
+        for (QWidget* w : QApplication::allWidgets()) w->update();
+    }
+
 
     // ── Przeliczenie pojedynczego koloru ─────────────────────────────────────
     static QColor c(const QColor& in) {
@@ -166,6 +228,9 @@ private:
     static constexpr double BG_L0  = 30.0 / 255.0;                 // #1e1e1e
     static constexpr double ACC_L0 = (0x2D + 0xD2) / 2.0 / 255.0;  // #2D7DD2
 
+    struct Sub { QPointer<QObject> ctx; std::function<void()> fn; };
+    static std::vector<Sub>& subs() { static std::vector<Sub> v; return v; }
+
     struct S {
         bool   active = false;
         bool   bg     = false;
@@ -175,11 +240,14 @@ private:
         double bg_h = 0, bg_s = 0;
         double acc_h = 0.58, acc_s = 0.64, acc_l = ACC_L0;
     };
-    static S& st() { static S s; return s; }
+    // Stan motywu: wskaźnik podmieniany atomowo (render GL czyta go z innego wątku).
+    // Stare wersje celowo nie są zwalniane (kilkadziesiąt bajtów na zmianę).
+    static std::atomic<const S*>& sp() { static std::atomic<const S*> p{ new S() }; return p; }
+    static const S& st() { return *sp().load(std::memory_order_acquire); }
 
     static void compute(const Cfg& cfg) {
-        S& t = st();
-        t = S{};
+        S* n = new S{};
+        S& t = *n;
         if (cfg.bg_custom) {
             const QColor col = cfg.bg_color;
             t.bg   = true;
@@ -199,6 +267,7 @@ private:
             t.acc_l  = std::clamp(double(col.lightnessF()), 0.25, 0.75);
         }
         t.active = t.bg || t.accent;
+        sp().store(n, std::memory_order_release);
     }
 
     static bool is_accent(double h, double s, double l) {
@@ -236,8 +305,18 @@ protected:
             auto* w = static_cast<QWidget*>(obj);
             if (w->property("leye_no_theme").toBool()) return false;  // np. próbka koloru
             const QString cur = w->styleSheet();
-            if (!cur.isEmpty() && cur != w->property("_leye_css_out").toString()) {
+            if (cur.isEmpty()) {
+                if (w->property("_leye_css_src").isValid()) {
+                    w->setProperty("_leye_css_src", QVariant());
+                    w->setProperty("_leye_css_out", QVariant());
+                }
+                return false;
+            }
+            if (cur != w->property("_leye_css_out").toString()) {
+                // Nowy arkusz ustawiony przez program: zapamiętaj oryginał
+                // (potrzebny do przeliczenia przy zmianie motywu na żywo).
                 const QString out = Theme::css(cur);
+                w->setProperty("_leye_css_src", cur);
                 w->setProperty("_leye_css_out", out);
                 if (out != cur) w->setStyleSheet(out);
             }
