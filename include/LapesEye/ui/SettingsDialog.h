@@ -77,6 +77,7 @@ private:
     void         pick_theme_color(QColor& target, const QString& title);
     QTimer*      m_theme_timer        = nullptr;
     bool         m_theme_loading      = true;
+    bool         m_theme_pending      = false;
     Theme::Cfg   m_theme_saved;
     QSlider*     m_theme_slider       = nullptr;
     QLabel*      m_theme_slider_lbl   = nullptr;
