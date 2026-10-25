@@ -48,7 +48,7 @@ ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
     // Motyw na żywo: przerysuj (GL: unieważnij nakładki z nazwami/etykietami)
     Theme::subscribe(this, [this]() {
 #if LEYE_HAS_GL
-        for (auto& e : m_gpu) { e.overlay_dirty = true; e.thumb_dirty = true; e.ov_w = 0; e.ov_h = 0; }
+        for (auto& e : m_gpu) { e.overlay_dirty = true; e.ov_w = 0; e.ov_h = 0; }
 #endif
         update();
     });
