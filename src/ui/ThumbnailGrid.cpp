@@ -334,6 +334,11 @@ ThumbnailGrid::ThumbnailGrid(ThumbWorker* worker, QWidget* parent)
         p.setColor(QPalette::Window, Theme::c(QColor("#1e1e1e")));
         m_empty_cover->setPalette(p);
     }
+    Theme::subscribe(this, [this]() {
+        QPalette p = m_empty_cover->palette();
+        p.setColor(QPalette::Window, Theme::c(QColor("#1e1e1e")));
+        m_empty_cover->setPalette(p);
+    });
     m_empty_cover->hide();
 
     // Enter obsługiwany przez keyPressEvent (gdy ThumbnailGrid ma fokus)
