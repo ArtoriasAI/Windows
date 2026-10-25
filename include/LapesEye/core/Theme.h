@@ -23,6 +23,8 @@
 #include <QEvent>
 #include <QWidget>
 #include <QApplication>
+#include <QTimer>
+#include <QElapsedTimer>
 #include <QPalette>
 #include <QPointer>
 #include <atomic>
@@ -75,7 +77,10 @@ public:
     }
 
     // Wołać raz, w głównym wątku, po setOrganizationName/ApplicationName.
-    static void init() { compute(load()); }
+    static void init() {
+        compute(load());
+        flip_cur().store(target_flip(), std::memory_order_relaxed);   // start bez animacji
+    }
 
     static bool active() { return st().active; }
 
@@ -85,6 +90,7 @@ public:
     // w ikonach / elementach list).
     static void apply(const Cfg& cfg) {
         compute(cfg);
+        animate_flip();
         reapply_all();
     }
 
@@ -178,12 +184,11 @@ public:
 
     static QColor c(int r, int g, int b, int a = 255) { return c(QColor(r, g, b, a)); }
 
-    // Płynne przejście ciemny→jasny motyw (zamiast skoku przy jasności 50%):
-    // 0 = pełny ciemny wygląd, 1 = pełny jasny; pasmo przejściowe 0.44–0.62.
-    static double flip_t(double lb) {
-        double x = std::clamp((lb - 0.44) / (0.62 - 0.44), 0.0, 1.0);
-        return x * x * (3.0 - 2.0 * x);
-    }
+    // Odwrócenie kolorów liter (ciemny ↔ jasny motyw) następuje przy jasności
+    // tła 50% (~43% suwaka), ale jest animowane w czasie (0,5 s), a nie skokowe.
+    // 0 = ciemny wygląd, 1 = jasny; wartość zmienia animate_flip().
+    static double flip_t(double /*lb*/) { return flip_cur().load(std::memory_order_relaxed); }
+
     static QColor mixc(const QColor& a, const QColor& b, double t) {
         return QColor(int(a.red()   * (1 - t) + b.red()   * t + 0.5),
                       int(a.green() * (1 - t) + b.green() * t + 0.5),
@@ -240,6 +245,41 @@ public:
 private:
     static constexpr double BG_L0  = 30.0 / 255.0;                 // #1e1e1e
     static constexpr double ACC_L0 = (0x2D + 0xD2) / 2.0 / 255.0;  // #2D7DD2
+
+    static std::atomic<double>& flip_cur() { static std::atomic<double> v{0.0}; return v; }
+    static double target_flip() {
+        const S& t = st();
+        return (t.active && t.bg && t.lb > 0.5) ? 1.0 : 0.0;
+    }
+    // Animacja odwrócenia liter: 0,5 s, łagodny start i koniec.
+    static void animate_flip() {
+        static QTimer* tm = nullptr;
+        static QElapsedTimer el;
+        static double from = 0.0, to = -1.0;
+        const double target = target_flip();
+        if (!tm) {
+            tm = new QTimer(qApp);
+            tm->setInterval(33);
+            QObject::connect(tm, &QTimer::timeout, tm, []() {
+                const double x = std::min(el.elapsed() / 500.0, 1.0);
+                const double e = x * x * (3.0 - 2.0 * x);
+                flip_cur().store(from + (to - from) * e, std::memory_order_relaxed);
+                reapply_all();
+                if (x >= 1.0) tm->stop();
+            });
+        }
+        if (tm->isActive() && target == to) return;        // już zmierza w tę stronę
+        if (std::abs(flip_cur().load() - target) < 1e-6) {
+            flip_cur().store(target);
+            to = target;
+            tm->stop();
+            return;
+        }
+        from = flip_cur().load();
+        to   = target;
+        el.restart();
+        tm->start();
+    }
 
     struct Sub { QPointer<QObject> ctx; std::function<void()> fn; };
     static std::vector<Sub>& subs() { static std::vector<Sub> v; return v; }
