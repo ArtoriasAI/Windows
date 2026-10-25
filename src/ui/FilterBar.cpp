@@ -170,6 +170,12 @@ void FilterBar::setup_ui() {
     m_split2_btn->setIcon(QIcon(make_split2_icon()));
     m_split4_btn->setIcon(QIcon(make_split4_icon()));
     m_single_btn->setIconSize({18, 18});
+    // Motyw na żywo: ikony są rysowane programowo, więc trzeba je narysować ponownie
+    Theme::subscribe(this, [this]() {
+        m_single_btn->setIcon(QIcon(make_single_icon()));
+        m_split2_btn->setIcon(QIcon(make_split2_icon()));
+        m_split4_btn->setIcon(QIcon(make_split4_icon()));
+    });
     m_split2_btn->setIconSize({18, 18});
     m_split4_btn->setIconSize({18, 18});
 
