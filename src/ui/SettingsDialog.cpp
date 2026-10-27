@@ -1,5 +1,6 @@
 #include "LapesEye/ui/SettingsDialog.h"
 #include "LapesEye/core/ThumbCache.h"
+#include "LapesEye/core/RawLook.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -388,6 +389,50 @@ void SettingsDialog::setup_ui() {
     col_form->addRow("", col_info);
     lay_ed->addWidget(col_box);
 
+    // ── Wygląd plików RAW (ARW) ───────────────────────────────────────────────
+    auto* raw_box  = new QGroupBox("Wygląd plików RAW (ARW)", this);
+    auto* raw_form = new QFormLayout(raw_box);
+    auto make_slider = [&](int lo, int hi, const QString& tip) -> QSlider* {
+        auto* sl = new QSlider(Qt::Horizontal, this);
+        sl->setRange(lo, hi);
+        sl->setToolTip(tip);
+        return sl;
+    };
+    auto add_row = [&](const QString& name, QSlider* sl) {
+        auto* val = new QLabel(this);
+        val->setMinimumWidth(36);
+        val->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        auto upd = [val, sl]() { val->setText(QString::number(sl->value())); };
+        QObject::connect(sl, &QSlider::valueChanged, this, upd);
+        upd();
+        auto* row = new QHBoxLayout();
+        row->addWidget(sl, 1);
+        row->addWidget(val);
+        raw_form->addRow(name, row);
+    };
+    m_raw_vib = make_slider(0, 100,
+        "Selektywne nasycenie — mocniej wzmacnia kolory mało nasycone.\n"
+        "Dotychczasowa stała wartość to 12.");
+    m_raw_sat = make_slider(-100, 100, "Zwykłe nasycenie wszystkich kolorów (0 = bez zmian).");
+    m_raw_con = make_slider(-100, 100, "Kontrast — krzywa S wokół środka (0 = bez zmian).");
+    add_row("Jaskrawość (Vibrance):", m_raw_vib);
+    add_row("Nasycenie:",             m_raw_sat);
+    add_row("Kontrast:",              m_raw_con);
+    auto* raw_note = new QLabel(
+        "<small>Dotyczy miniatur, podglądu i pełnego ekranu dla plików RAW. "
+        "Zmiana jest widoczna po ponownym wczytaniu zdjęć (odśwież folder lub otwórz je jeszcze raz).</small>", this);
+    raw_note->setWordWrap(true);
+    raw_note->setStyleSheet("color: #888;");
+    raw_form->addRow(raw_note);
+    auto* raw_reset = new QPushButton("Przywróć domyślne", this);
+    raw_form->addRow(raw_reset);
+    QObject::connect(raw_reset, &QPushButton::clicked, this, [this]() {
+        m_raw_vib->setValue(RawLook::DEF_VIBRANCE);
+        m_raw_sat->setValue(RawLook::DEF_SATURATION);
+        m_raw_con->setValue(RawLook::DEF_CONTRAST);
+    });
+    lay_ed->addWidget(raw_box);
+
     // ── Zewnętrzny edytor ─────────────────────────────────────────────────────
     auto* ed_box  = new QGroupBox("Zewnętrzny edytor (E)", this);
     auto* ed_form = new QFormLayout(ed_box);
@@ -493,6 +538,14 @@ void SettingsDialog::load_values() {
             m_color_mode->setCurrentIndex(i);
             break;
         }
+    }
+
+    // Wygląd plików RAW
+    {
+        QSettings rs("Lape", "LapesEye");
+        m_raw_vib->setValue(rs.value("raw_look/vibrance",   RawLook::DEF_VIBRANCE).toInt());
+        m_raw_sat->setValue(rs.value("raw_look/saturation", RawLook::DEF_SATURATION).toInt());
+        m_raw_con->setValue(rs.value("raw_look/contrast",   RawLook::DEF_CONTRAST).toInt());
     }
 
     // Zewnętrzny edytor
@@ -608,6 +661,10 @@ void SettingsDialog::save_values() {
     s.setValue("cache/preload_full", m_preload_full->isChecked());
     s.setValue("ui/histogram_visible", m_histogram_visible->isChecked());
     s.setValue("color/mode", m_color_mode->currentData().toInt());
+    s.setValue("raw_look/vibrance",   m_raw_vib->value());
+    s.setValue("raw_look/saturation", m_raw_sat->value());
+    s.setValue("raw_look/contrast",   m_raw_con->value());
+    RawLook::reload();     // wątki robocze od razu używają nowych wartości
 
     // Motyw kolorystyczny
     {
