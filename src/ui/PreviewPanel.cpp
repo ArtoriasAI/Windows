@@ -1,4 +1,5 @@
 #include "LapesEye/ui/PreviewPanel.h"
+#include "LapesEye/core/RawLook.h"
 #include "LapesEye/core/Theme.h"
 #include "LapesEye/core/ColorManagement.h"
 #include "LapesEye/core/MetaStore.h"
@@ -261,6 +262,7 @@ void PreviewPanel::load(const QString& path) {
         if (FileScanner::is_raw(path)) {
             // RAW — embedded JPEG thumbnail przez libraw (~50ms)
             img = load_raw_preview(path, target);
+            if (!img.isNull()) img = RawLook::apply(img);   // wspólny wygląd RAW
             if (!img.isNull())
                 info = QString("%1 × %2 px  [RAW]").arg(img.width()).arg(img.height());
         }
