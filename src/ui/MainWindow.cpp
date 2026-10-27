@@ -423,6 +423,17 @@ void MainWindow::setup_panels() {
                              g->reapply_filter();
                          }
                      });
+    QObject::connect(m_meta_panel, &MetaPanel::flags_changed,
+                     this, [this](const QStringList& paths) {
+                         if (auto* g = current_grid()) {
+                             for (const auto& p : paths) g->refresh_metadata(p);
+                             g->reapply_filter();          // raz, nie dla każdego zdjęcia
+                         }
+                     });
+    m_meta_panel->set_selection_provider([this]() -> QStringList {
+        auto* g = current_grid();
+        return g ? g->selected_paths_ordered() : QStringList();
+    });
     QObject::connect(m_meta_panel, &MetaPanel::return_focus,
                      this, [this]() {
                          if (auto* g = current_grid()) g->setFocus();
@@ -1879,16 +1890,30 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     bool text_focused = qobject_cast<QLineEdit*>(QApplication::focusWidget()) != nullptr;
 
     if (!text_focused) {
-        // Z — Wybrane (toggle)
+        // Z — Wybrane (toggle) — dla wszystkich zaznaczonych zdjęć
         if (e->key() == Qt::Key_Z && !e->modifiers()) {
             if (m_meta_panel) {
+                if (auto* g = current_grid()) {
+                    const QStringList sel = g->selected_paths_ordered();
+                    if (sel.size() > 1) {
+                        m_meta_panel->set_flag_for_paths(sel, PickFlag::Pick);
+                        e->accept(); return;
+                    }
+                }
                 m_meta_panel->set_flag(PickFlag::Pick);
                 e->accept(); return;
             }
         }
-        // X — Odrzucone (toggle)
+        // X — Odrzucone (toggle) — dla wszystkich zaznaczonych zdjęć
         if (e->key() == Qt::Key_X && !e->modifiers()) {
             if (m_meta_panel) {
+                if (auto* g = current_grid()) {
+                    const QStringList sel = g->selected_paths_ordered();
+                    if (sel.size() > 1) {
+                        m_meta_panel->set_flag_for_paths(sel, PickFlag::Reject);
+                        e->accept(); return;
+                    }
+                }
                 m_meta_panel->set_flag(PickFlag::Reject);
                 e->accept(); return;
             }
