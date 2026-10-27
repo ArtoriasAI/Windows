@@ -5,6 +5,7 @@
 #include <QApplication>
 #include "LapesEye/core/ColorManagement.h"
 #include "LapesEye/core/Theme.h"
+#include "LapesEye/core/RawLook.h"
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QDir>
@@ -43,6 +44,7 @@ int main(int argc, char* argv[]) {
     // Motyw kolorystyczny (Ustawienia → Motyw kolorystyczny). Musi być przed
     // utworzeniem okien. Filtr przelicza kolory w każdym setStyleSheet().
     LapesEye::Theme::init();
+    LapesEye::RawLook::reload();   // kontrast/nasycenie RAW (wątki robocze czytają atomy)
     app.installEventFilter(new LapesEye::ThemeFilter(&app));   // zawsze — potrzebny do zmiany motywu na żywo
     app.setApplicationVersion("0.5.8");
     app.setDesktopFileName("lapes-eye");
