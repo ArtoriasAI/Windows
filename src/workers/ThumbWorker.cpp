@@ -1,4 +1,5 @@
 #include "LapesEye/workers/ThumbWorker.h"
+#include "LapesEye/core/RawLook.h"
 #include "LapesEye/core/ThumbCache.h"
 #include <algorithm>
 #include "LapesEye/core/ColorManagement.h"
@@ -86,6 +87,7 @@ void ThumbJob::run() {
             if (size_ok && !img.isNull()) {
                 if (maxdim > m_size + 1)
                     img = img.scaled(m_size, m_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                if (!img.isNull() && FileScanner::is_raw(m_path)) img = RawLook::apply(img);
                 if (!img.isNull()) img = usm_thumb(img, 0.65f);
                 emit image_ready(m_path, img, ThumbQuality::CacheHit, m_generation);
                 return;
@@ -115,6 +117,7 @@ void ThumbJob::run() {
     }
 
     // USM — ta sama wartość co Lapes Eye sony_curve2 pipeline
+    if (!result.isNull() && FileScanner::is_raw(m_path)) result = RawLook::apply(result);
     if (!result.isNull()) result = usm_thumb(result, 0.65f);
 
     emit image_ready(m_path, result, m_quality, m_generation);
