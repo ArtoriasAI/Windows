@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FullscreenViewer.h"
+#include "LapesEye/core/RawLook.h"
 
 #include <algorithm>
 #include <vector>
@@ -643,7 +644,7 @@ void FullscreenViewer::load_current() {
                         }
                     }
                 }
-                img = apply_vibrance(img, 0.12f);
+                img = RawLook::apply(img);
             }
         }
 
@@ -855,7 +856,7 @@ void FullscreenViewer::load_full_resolution() {
         }
 
         // ── Krok 4: Vibrance +12% ────────────────────────────────────────────
-        img = apply_vibrance(img, 0.12f);
+        img = RawLook::apply(img);
         img = apply_color_mode(img);
 
         // Użyj cache rotacji z load_current — unikamy ponownego odczytu JSON
@@ -1079,7 +1080,7 @@ void FullscreenViewer::prefetch_full_neighbors() {
                 }
             }
 
-            img = apply_vibrance(img, 0.12f);
+            img = RawLook::apply(img);
             img = apply_color_mode(img);
 
             // Prefetch: odczyt rotacji konieczny (inne zdjęcie niż bieżące)
