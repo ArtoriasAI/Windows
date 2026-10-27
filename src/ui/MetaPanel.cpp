@@ -114,23 +114,31 @@ void MetaPanel::setup_ui() {
 
     // Pick/Reject są wzajemnie wykluczające
     QObject::connect(m_btn_pick, &QPushButton::clicked, this, [this](bool checked) {
-        if (checked) {
-            m_btn_reject->setChecked(false);
-            m_current_flag = PickFlag::Pick;
-        } else {
-            m_current_flag = PickFlag::None;
+        if (checked) m_btn_reject->setChecked(false);
+        {   // wiele zaznaczonych zdjęć → ta sama flaga dla wszystkich
+            const QStringList sel = m_selection_provider ? m_selection_provider() : QStringList();
+            if (sel.size() > 1) {
+                apply_flag_to_paths(sel, checked ? PickFlag::Pick : PickFlag::None);
+                emit return_focus();
+                return;
+            }
         }
+        m_current_flag = checked ? PickFlag::Pick : PickFlag::None;
         save();
         emit flag_changed(m_current_path);
         emit return_focus();  // zwróć fokus do siatki
     });
     QObject::connect(m_btn_reject, &QPushButton::clicked, this, [this](bool checked) {
-        if (checked) {
-            m_btn_pick->setChecked(false);
-            m_current_flag = PickFlag::Reject;
-        } else {
-            m_current_flag = PickFlag::None;
+        if (checked) m_btn_pick->setChecked(false);
+        {
+            const QStringList sel = m_selection_provider ? m_selection_provider() : QStringList();
+            if (sel.size() > 1) {
+                apply_flag_to_paths(sel, checked ? PickFlag::Reject : PickFlag::None);
+                emit return_focus();
+                return;
+            }
         }
+        m_current_flag = checked ? PickFlag::Reject : PickFlag::None;
         save();
         emit flag_changed(m_current_path);
         emit return_focus();
@@ -170,6 +178,28 @@ void MetaPanel::set_flag(PickFlag flag) {
     m_btn_reject->setChecked(flag == PickFlag::Reject);
     save();
     emit flag_changed(m_current_path);
+}
+
+void MetaPanel::set_flag_for_paths(const QStringList& paths, PickFlag flag) {
+    if (paths.isEmpty()) return;
+    bool all_have = true;
+    for (const auto& p : paths)
+        if (MetaStore::load(p).pick_flag != flag) { all_have = false; break; }
+    apply_flag_to_paths(paths, all_have ? PickFlag::None : flag);
+}
+
+void MetaPanel::apply_flag_to_paths(const QStringList& paths, PickFlag flag) {
+    for (const auto& p : paths) {
+        FileMetadata meta = MetaStore::load(p);
+        meta.pick_flag = flag;
+        MetaStore::save(meta);
+    }
+    if (paths.contains(m_current_path)) {
+        m_current_flag = flag;
+        m_btn_pick->setChecked(flag == PickFlag::Pick);
+        m_btn_reject->setChecked(flag == PickFlag::Reject);
+    }
+    emit flags_changed(paths);
 }
 
 void MetaPanel::set_flag_for_path(const QString& path, PickFlag flag) {
