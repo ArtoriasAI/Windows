@@ -37,6 +37,9 @@ FolderPanel::FolderPanel(QWidget* parent) : QWidget(parent) {
         for (int i = 0; i < m_list->count(); ++i) {
             auto* it = m_list->item(i);
             const QString type = it->data(RoleType).toString();
+            if (type == "header" || type == "header_toggle") {
+                QFont hf = it->font(); hf.setPointSize(Theme::pt(8)); it->setFont(hf);
+            }
             if (type == "header") {
                 it->setForeground(Theme::c(QColor(0x77,0x77,0x77)));
                 it->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
@@ -117,7 +120,7 @@ void FolderPanel::add_header(const QString& text) {
     auto* item = new QListWidgetItem(text, m_list);
     item->setFlags(Qt::NoItemFlags);
     QFont f = item->font();
-    f.setPointSize(8); f.setBold(true);
+    f.setPointSize(Theme::pt(8)); f.setBold(true);
     item->setFont(f);
     item->setForeground(Theme::c(QColor(0x77,0x77,0x77)));
     item->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
@@ -130,7 +133,7 @@ void FolderPanel::add_toggle_header(const QString& text, const QString& section_
     QString arrow = is_open ? "▾ " : "▸ ";
     auto* item = new QListWidgetItem(arrow + text, m_list);
     QFont f = item->font();
-    f.setPointSize(8); f.setBold(true);
+    f.setPointSize(Theme::pt(8)); f.setBold(true);
     item->setFont(f);
     item->setForeground(Theme::c(QColor(0x99,0x99,0x99)));
     item->setBackground(Theme::c(QColor(0x22,0x22,0x22)));
