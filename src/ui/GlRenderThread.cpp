@@ -434,7 +434,7 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
             QRect name_bg(0, ch - TC_NAME_H - TC_PAD - 1, cw, TC_NAME_H + 2);
             p.fillRect(name_bg, Theme::c(QColor(0x28, 0x28, 0x28, 200)));
             p.setPen(selected ? Qt::white : Theme::c(QColor(0xcc, 0xcc, 0xcc)));
-            p.setFont(QFont("sans", 8));
+            p.setFont(QFont("sans", Theme::pt(8)));
             QRect name_r(TC_PAD, ch - TC_NAME_H - TC_PAD,
                          cw - 2 * TC_PAD, TC_NAME_H);
             p.drawText(name_r, Qt::AlignCenter | Qt::TextSingleLine,
@@ -445,7 +445,7 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
                 QString stars(item.meta.rating, QChar(0x2605));
                 QRect stars_r(TC_PAD, ch - TC_NAME_H - TC_STARS_H - TC_PAD - 2,
                                cw - 2 * TC_PAD, TC_STARS_H);
-                p.setFont(QFont("sans", 7));
+                p.setFont(QFont("sans", Theme::pt(7)));
                 p.setPen(QColor(0xff, 0xd7, 0x00));
                 p.drawText(stars_r, Qt::AlignCenter, stars);
             }
@@ -475,11 +475,11 @@ void GlRenderThread::gpu_render_overlay(const QString& path, GpuEntry& e,
             // Oznaczenie (pick/reject)
             if (item.meta_loaded) {
                 if (item.meta.pick_flag == PickFlag::Pick) {
-                    p.setFont(QFont("sans", 9, QFont::Bold));
+                    p.setFont(QFont("sans", Theme::pt(9), QFont::Bold));
                     p.setPen(QColor(0x00, 0xff, 0x88));
                     p.drawText(QRect(2, 2, 20, 16), Qt::AlignLeft, "✓");
                 } else if (item.meta.pick_flag == PickFlag::Reject) {
-                    p.setFont(QFont("sans", 9, QFont::Bold));
+                    p.setFont(QFont("sans", Theme::pt(9), QFont::Bold));
                     p.setPen(QColor(0xff, 0x44, 0x44));
                     p.drawText(QRect(2, 2, 20, 16), Qt::AlignLeft, "✗");
                 }
