@@ -79,10 +79,9 @@ private:
     bool         m_theme_loading      = true;
     bool         m_theme_pending      = false;
     Theme::Cfg   m_theme_saved;
-    // Wygląd plików RAW (kontrast / nasycenie)
-    QSlider*     m_raw_vib            = nullptr;
-    QSlider*     m_raw_sat            = nullptr;
-    QSlider*     m_raw_con            = nullptr;
+    // Rozmiar tekstu
+    QSlider*     m_font_slider        = nullptr;
+    QLabel*      m_font_lbl           = nullptr;
     QSlider*     m_theme_slider       = nullptr;
     QLabel*      m_theme_slider_lbl   = nullptr;
     QCheckBox*   m_theme_bg_custom    = nullptr;
