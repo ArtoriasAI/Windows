@@ -26,6 +26,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QPalette>
+#include <QFont>
 #include <QPointer>
 #include <atomic>
 #include <functional>
@@ -45,11 +46,13 @@ public:
         // Akcent (zaznaczenia, aktywne elementy)
         bool   accent_on    = false;
         QColor accent_color = QColor(0x2D, 0x7D, 0xD2);
+        // Rozmiar tekstu interfejsu w % (100 = obecny)
+        int    font_pct     = 100;
 
         bool operator==(const Cfg& o) const {
             return lighten == o.lighten && bg_custom == o.bg_custom &&
                    bg_color == o.bg_color && accent_on == o.accent_on &&
-                   accent_color == o.accent_color;
+                   accent_color == o.accent_color && font_pct == o.font_pct;
         }
         bool operator!=(const Cfg& o) const { return !(*this == o); }
     };
@@ -64,6 +67,7 @@ public:
         c.accent_on = s.value("theme/accent_on", false).toBool();
         QColor ac(s.value("theme/accent_color", "#2d7dd2").toString());
         if (ac.isValid()) c.accent_color = ac;
+        c.font_pct = std::clamp(s.value("theme/font_pct", 100).toInt(), 70, 160);
         return c;
     }
 
@@ -74,11 +78,14 @@ public:
         s.setValue("theme/bg_color",     c.bg_color.name());
         s.setValue("theme/accent_on",    c.accent_on);
         s.setValue("theme/accent_color", c.accent_color.name());
+        s.setValue("theme/font_pct",     c.font_pct);
     }
 
     // Wołać raz, w głównym wątku, po setOrganizationName/ApplicationName.
     static void init() {
+        base_font() = QApplication::font();      // czcionka systemowa — punkt odniesienia dla skali
         compute(load());
+        apply_font();
         flip_cur().store(target_flip(), std::memory_order_relaxed);   // start bez animacji
     }
 
@@ -123,6 +130,7 @@ public:
             w->setUpdatesEnabled(false);
         }
         apply_palette();
+        apply_font();
         const auto widgets = QApplication::allWidgets();
         for (QWidget* w : widgets) {
             if (w->property("leye_no_theme").toBool()) continue;
@@ -225,21 +233,46 @@ public:
     }
 
     // ── Arkusze stylów: podmień każdy #rgb / #rrggbb ─────────────────────────
+    // Rozmiary czcionek przeskalowane suwakiem "Rozmiar tekstu".
+    static int px(int n) { return std::max(1, int(std::lround(n * fontpct().load() / 100.0))); }
+    static int pt(int n) { return std::max(1, int(std::lround(n * fontpct().load() / 100.0))); }
+
     static QString css(const QString& in) {
-        if (!st().active || in.isEmpty() || !in.contains('#')) return in;
-        static const QRegularExpression re("#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\\b");
-        QString out;
-        out.reserve(in.size() + 16);
-        int last = 0;
-        auto it = re.globalMatch(in);
-        while (it.hasNext()) {
-            const auto m = it.next();
-            out += in.mid(last, m.capturedStart() - last);
-            out += c(QColor(m.captured(0))).name();
-            last = m.capturedEnd();
+        if (in.isEmpty()) return in;
+        QString cur = in;
+        if (st().active && cur.contains('#')) {
+            static const QRegularExpression re("#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\\b");
+            QString out;
+            out.reserve(cur.size() + 16);
+            int last = 0;
+            auto it = re.globalMatch(cur);
+            while (it.hasNext()) {
+                const auto m = it.next();
+                out += cur.mid(last, m.capturedStart() - last);
+                out += c(QColor(m.captured(0))).name();
+                last = m.capturedEnd();
+            }
+            out += cur.mid(last);
+            cur = out;
         }
-        out += in.mid(last);
-        return out;
+        const int pct = fontpct().load();
+        if (pct != 100 && cur.contains("font-size")) {
+            static const QRegularExpression fre("font-size:\\s*(\\d+)\\s*(px|pt)");
+            QString out;
+            int last = 0;
+            auto it = fre.globalMatch(cur);
+            while (it.hasNext()) {
+                const auto m = it.next();
+                out += cur.mid(last, m.capturedStart() - last);
+                out += QString("font-size: %1%2")
+                           .arg(std::max(1, int(std::lround(m.captured(1).toInt() * pct / 100.0))))
+                           .arg(m.captured(2));
+                last = m.capturedEnd();
+            }
+            out += cur.mid(last);
+            cur = out;
+        }
+        return cur;
     }
 
 private:
@@ -281,6 +314,20 @@ private:
         tm->start();
     }
 
+    static std::atomic<int>& fontpct() { static std::atomic<int> v{100}; return v; }
+    static QFont& base_font() { static QFont f; return f; }
+    static int& applied_pct() { static int v = 100; return v; }
+    // Domyślna czcionka aplikacji (widgety bez własnego rozmiaru) według skali.
+    static void apply_font() {
+        const int pct = fontpct().load();
+        if (pct == applied_pct()) return;
+        applied_pct() = pct;
+        QFont f = base_font();
+        if (f.pointSizeF() > 0)      f.setPointSizeF(base_font().pointSizeF() * pct / 100.0);
+        else if (f.pixelSize() > 0)  f.setPixelSize(std::max(1, int(std::lround(base_font().pixelSize() * pct / 100.0))));
+        QApplication::setFont(f);
+    }
+
     struct Sub { QPointer<QObject> ctx; std::function<void()> fn; };
     static std::vector<Sub>& subs() { static std::vector<Sub> v; return v; }
 
@@ -301,6 +348,7 @@ private:
     static void compute(const Cfg& cfg) {
         S* n = new S{};
         S& t = *n;
+        fontpct().store(std::clamp(cfg.font_pct, 70, 160));
         if (cfg.bg_custom) {
             const QColor col = cfg.bg_color;
             t.bg   = true;
