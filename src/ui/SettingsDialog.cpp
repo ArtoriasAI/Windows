@@ -1,6 +1,5 @@
 #include "LapesEye/ui/SettingsDialog.h"
 #include "LapesEye/core/ThumbCache.h"
-#include "LapesEye/core/RawLook.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -325,6 +324,21 @@ void SettingsDialog::setup_ui() {
     ac_row->addWidget(m_theme_acc_btn);
     th_lay->addLayout(ac_row);
 
+    // Rozmiar tekstu
+    m_font_lbl = new QLabel(this);
+    m_font_slider = new QSlider(Qt::Horizontal, this);
+    m_font_slider->setRange(70, 160);
+    m_font_slider->setSingleStep(5);
+    m_font_slider->setPageStep(10);
+    m_font_slider->setToolTip("Skaluje cały tekst w programie (100% = obecny rozmiar).");
+    auto* fs_row = new QHBoxLayout();
+    fs_row->addWidget(new QLabel("Mniejszy", this));
+    fs_row->addWidget(m_font_slider, 1);
+    fs_row->addWidget(new QLabel("Większy", this));
+    th_lay->addWidget(m_font_lbl);
+    th_lay->addLayout(fs_row);
+    QObject::connect(m_font_slider, &QSlider::valueChanged, this, [this](int) { update_theme_ui(); });
+
     auto* note = new QLabel("<small>Zmiany widać od razu. „Anuluj” cofa podgląd, „Zastosuj”/„OK” zapisuje motyw.</small>", this);
     note->setStyleSheet("color: #888;");
     th_lay->addWidget(note);
@@ -360,6 +374,7 @@ void SettingsDialog::setup_ui() {
         m_theme_accent->setChecked(false);
         m_theme_bg_color  = QColor(0x1E, 0x1E, 0x1E);
         m_theme_acc_color = QColor(0x2D, 0x7D, 0xD2);
+        m_font_slider->setValue(100);
         update_theme_ui();
     });
 
@@ -389,49 +404,6 @@ void SettingsDialog::setup_ui() {
     col_form->addRow("", col_info);
     lay_ed->addWidget(col_box);
 
-    // ── Wygląd plików RAW (ARW) ───────────────────────────────────────────────
-    auto* raw_box  = new QGroupBox("Wygląd plików RAW (ARW)", this);
-    auto* raw_form = new QFormLayout(raw_box);
-    auto make_slider = [&](int lo, int hi, const QString& tip) -> QSlider* {
-        auto* sl = new QSlider(Qt::Horizontal, this);
-        sl->setRange(lo, hi);
-        sl->setToolTip(tip);
-        return sl;
-    };
-    auto add_row = [&](const QString& name, QSlider* sl) {
-        auto* val = new QLabel(this);
-        val->setMinimumWidth(36);
-        val->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        auto upd = [val, sl]() { val->setText(QString::number(sl->value())); };
-        QObject::connect(sl, &QSlider::valueChanged, this, upd);
-        upd();
-        auto* row = new QHBoxLayout();
-        row->addWidget(sl, 1);
-        row->addWidget(val);
-        raw_form->addRow(name, row);
-    };
-    m_raw_vib = make_slider(0, 100,
-        "Selektywne nasycenie — mocniej wzmacnia kolory mało nasycone.\n"
-        "Dotychczasowa stała wartość to 12.");
-    m_raw_sat = make_slider(-100, 100, "Zwykłe nasycenie wszystkich kolorów (0 = bez zmian).");
-    m_raw_con = make_slider(-100, 100, "Kontrast — krzywa S wokół środka (0 = bez zmian).");
-    add_row("Jaskrawość (Vibrance):", m_raw_vib);
-    add_row("Nasycenie:",             m_raw_sat);
-    add_row("Kontrast:",              m_raw_con);
-    auto* raw_note = new QLabel(
-        "<small>Dotyczy miniatur, podglądu i pełnego ekranu dla plików RAW. "
-        "Zmiana jest widoczna po ponownym wczytaniu zdjęć (odśwież folder lub otwórz je jeszcze raz).</small>", this);
-    raw_note->setWordWrap(true);
-    raw_note->setStyleSheet("color: #888;");
-    raw_form->addRow(raw_note);
-    auto* raw_reset = new QPushButton("Przywróć domyślne", this);
-    raw_form->addRow(raw_reset);
-    QObject::connect(raw_reset, &QPushButton::clicked, this, [this]() {
-        m_raw_vib->setValue(RawLook::DEF_VIBRANCE);
-        m_raw_sat->setValue(RawLook::DEF_SATURATION);
-        m_raw_con->setValue(RawLook::DEF_CONTRAST);
-    });
-    lay_ed->addWidget(raw_box);
 
     // ── Zewnętrzny edytor ─────────────────────────────────────────────────────
     auto* ed_box  = new QGroupBox("Zewnętrzny edytor (E)", this);
@@ -527,6 +499,7 @@ void SettingsDialog::load_values() {
         m_theme_bg_color = tc.bg_color;
         m_theme_accent->setChecked(tc.accent_on);
         m_theme_acc_color = tc.accent_color;
+        m_font_slider->setValue(tc.font_pct);
         update_theme_ui();
         m_theme_loading = false;
     }
@@ -538,14 +511,6 @@ void SettingsDialog::load_values() {
             m_color_mode->setCurrentIndex(i);
             break;
         }
-    }
-
-    // Wygląd plików RAW
-    {
-        QSettings rs("Lape", "LapesEye");
-        m_raw_vib->setValue(rs.value("raw_look/vibrance",   RawLook::DEF_VIBRANCE).toInt());
-        m_raw_sat->setValue(rs.value("raw_look/saturation", RawLook::DEF_SATURATION).toInt());
-        m_raw_con->setValue(rs.value("raw_look/contrast",   RawLook::DEF_CONTRAST).toInt());
     }
 
     // Zewnętrzny edytor
@@ -572,6 +537,7 @@ void SettingsDialog::update_theme_ui() {
         bgc ? QString("Tło: własny kolor (suwak wyłączony)")
             : (v == 0 ? QString("Jasność tła: obecna")
                       : QString("Jasność tła: %1%").arg(v)));
+    m_font_lbl->setText(QString("Rozmiar tekstu: %1%").arg(m_font_slider->value()));
     m_theme_bg_btn->setStyleSheet(leye_swatch_css(m_theme_bg_color));
     m_theme_acc_btn->setStyleSheet(leye_swatch_css(m_theme_acc_color));
     schedule_theme_preview();
@@ -584,6 +550,7 @@ Theme::Cfg SettingsDialog::theme_cfg_from_ui() const {
     tc.bg_color     = m_theme_bg_color;
     tc.accent_on    = m_theme_accent->isChecked();
     tc.accent_color = m_theme_acc_color;
+    tc.font_pct     = m_font_slider->value();
     return tc;
 }
 
@@ -661,10 +628,6 @@ void SettingsDialog::save_values() {
     s.setValue("cache/preload_full", m_preload_full->isChecked());
     s.setValue("ui/histogram_visible", m_histogram_visible->isChecked());
     s.setValue("color/mode", m_color_mode->currentData().toInt());
-    s.setValue("raw_look/vibrance",   m_raw_vib->value());
-    s.setValue("raw_look/saturation", m_raw_sat->value());
-    s.setValue("raw_look/contrast",   m_raw_con->value());
-    RawLook::reload();     // wątki robocze od razu używają nowych wartości
 
     // Motyw kolorystyczny
     {
