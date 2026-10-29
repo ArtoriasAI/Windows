@@ -157,7 +157,7 @@ void ThumbnailItem::paintEvent(QPaintEvent*) {
         QRect name_rect(PAD, img_rect.bottom() + 3, total.width() - 2*PAD, NAME_H);
         p.setPen(m_selected ? Qt::white : Theme::c(QColor(0xCC, 0xCC, 0xCC)));
         QFont fn = p.font();
-        fn.setPixelSize(11);
+        fn.setPixelSize(Theme::px(11));
         p.setFont(fn);
         QFontMetrics fm(fn);
         p.drawText(name_rect, Qt::AlignHCenter | Qt::AlignVCenter,
@@ -175,7 +175,7 @@ void ThumbnailItem::draw_stars(QPainter& p, const QRect& rect, int rating) {
     const int sw = 11;
     int x = rect.x() + (rect.width() - 5 * sw) / 2;
     int y = rect.y() + (rect.height() - sw) / 2;
-    QFont f = p.font(); f.setPixelSize(9); p.setFont(f);
+    QFont f = p.font(); f.setPixelSize(Theme::px(9)); p.setFont(f);
     for (int i = 0; i < 5; ++i) {
         p.setPen(i < rating ? QColor(0xF0, 0xC0, 0x20) : Theme::c(QColor(0x44, 0x44, 0x44)));
         p.drawText(QRect(x + i*sw, y, sw, sw), Qt::AlignCenter, "★");
@@ -185,7 +185,7 @@ void ThumbnailItem::draw_stars(QPainter& p, const QRect& rect, int rating) {
 void ThumbnailItem::draw_badge(QPainter& p, const QRect& container,
                                 const QString& text, const QColor& bg)
 {
-    QFont f = p.font(); f.setPixelSize(8); f.setBold(true); p.setFont(f);
+    QFont f = p.font(); f.setPixelSize(Theme::px(8)); f.setBold(true); p.setFont(f);
     QFontMetrics fm(f);
     int tw = fm.horizontalAdvance(text) + 6;
     QRect badge(container.x() + 2, container.bottom() - 14, tw, 12);
