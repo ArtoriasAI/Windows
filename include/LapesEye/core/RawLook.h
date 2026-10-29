@@ -26,10 +26,11 @@ public:
     static constexpr int DEF_CONTRAST   = 0;
 
     static void reload() {
-        QSettings s("Lape", "LapesEye");
-        vib().store(std::clamp(s.value("raw_look/vibrance",   DEF_VIBRANCE).toInt(),   0, 100));
-        sat().store(std::clamp(s.value("raw_look/saturation", DEF_SATURATION).toInt(), -100, 100));
-        con().store(std::clamp(s.value("raw_look/contrast",   DEF_CONTRAST).toInt(),   -100, 100));
+        // Suwaki w Ustawieniach zostały na razie usunięte — stosujemy wartości domyślne.
+        // (Żeby je przywrócić, wystarczy znów czytać raw_look/* z QSettings.)
+        vib().store(DEF_VIBRANCE);
+        sat().store(DEF_SATURATION);
+        con().store(DEF_CONTRAST);
     }
 
     static QImage apply(const QImage& src) {
