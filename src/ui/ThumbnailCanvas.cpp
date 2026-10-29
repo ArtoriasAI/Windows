@@ -1,5 +1,6 @@
 #include "LapesEye/ui/ThumbnailCanvas.h"
 #include "LapesEye/core/Theme.h"
+#include <algorithm>
 #if LEYE_HAS_GL
 #  include <QOpenGLContext>
 #  include <QOpenGLPaintDevice>
@@ -37,10 +38,10 @@ static constexpr int CELL_GAP  = 4;
 static constexpr int CELL_PAD  = 4;
 // Padding pionowy (góra/dół) — mniejszy żeby zdjęcia poziome nie traciły miejsca
 static constexpr int CELL_VPAD = 2;
-// Wysokość paska z nazwą pliku
-static constexpr int NAME_H    = 15;
-// Wysokość paska z gwiazdkami
-static constexpr int STARS_H   = 12;
+// Wysokość paska z nazwą pliku i z gwiazdkami — rosną razem z rozmiarem tekstu
+// (inaczej ogonki liter j, p, g, y są ucinane przy powiększonej czcionce)
+static inline int name_h()  { return std::max(15, Theme::px(11) + 6); }
+static inline int stars_h() { return std::max(12, Theme::px(9) + 4); }
 
 ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
     : QWidget(parent)
@@ -50,6 +51,7 @@ ThumbnailCanvas::ThumbnailCanvas(QWidget* parent)
 #if LEYE_HAS_GL
         for (auto& e : m_gpu) { e.overlay_dirty = true; e.ov_w = 0; e.ov_h = 0; }
 #endif
+        setFixedHeight(qMax(1, total_height()));   // wysokość wiersza zależy od rozmiaru tekstu
         update();
     });
 
@@ -192,7 +194,7 @@ int ThumbnailCanvas::cols() const {
 }
 
 int ThumbnailCanvas::cell_size() const {
-    return m_thumb_size + 2*CELL_VPAD + NAME_H + STARS_H;
+    return m_thumb_size + 2*CELL_VPAD + name_h() + stars_h();
 }
 
 int ThumbnailCanvas::total_height() const {
@@ -356,7 +358,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
 
     // ── Miniatura — wypełnia cały kafelek zachowując proporcje (crop) ─────────
     int avail_w = r.width()  - 2*CELL_PAD;
-    int avail_h = r.height() - 2*CELL_VPAD - NAME_H - STARS_H - 3;
+    int avail_h = r.height() - 2*CELL_VPAD - name_h() - stars_h() - 3;
     int img_x   = r.x() + CELL_PAD;
     int img_y   = r.y() + CELL_VPAD;
     QRect img_rect(img_x, img_y, avail_w, avail_h);
@@ -423,7 +425,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
     // ── Nazwa pliku ───────────────────────────────────────────────────────────
     if (m_rename_idx != idx) {
         int name_y = img_rect.bottom() + 3;
-        QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, NAME_H);
+        QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, name_h());
         p.setPen(selected ? Qt::white : Theme::c(QColor(0xCC, 0xCC, 0xCC)));
         QFont fn = p.font(); fn.setPixelSize(Theme::px(11)); p.setFont(fn);
         QFontMetrics fm(fn);
@@ -433,7 +435,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
         // ── Gwiazdki ──────────────────────────────────────────────────────────
         if (item.meta_loaded && item.meta.rating > 0 && !item.file.is_dir) {
             QRect star_rect(r.x() + CELL_PAD, name_rect.bottom() + 1,
-                            r.width() - 2*CELL_PAD, STARS_H);
+                            r.width() - 2*CELL_PAD, stars_h());
             draw_stars(p, star_rect, item.meta.rating);
         }
     }
@@ -512,7 +514,7 @@ void ThumbnailCanvas::mouseDoubleClickEvent(QMouseEvent* e) {
     int img_y = r.y() + CELL_PAD;
     QRect img_rect(r.x() + (r.width() - ts)/2, img_y, ts, ts);
     int name_y = img_rect.bottom() + 3;
-    QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, NAME_H);
+    QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, name_h());
 
     if (name_rect.contains(e->pos()))
         start_rename(idx);
@@ -553,11 +555,11 @@ void ThumbnailCanvas::start_rename(int idx) {
     cancel_rename();
     m_rename_idx = idx;
     QRect r     = item_rect(idx);
-    int avail_h = r.height() - 2*CELL_VPAD - NAME_H - STARS_H - 3;
+    int avail_h = r.height() - 2*CELL_VPAD - name_h() - stars_h() - 3;
     int name_y  = r.y() + CELL_VPAD + avail_h + 3;
     // Koordynaty w canvas → przelicz do viewport (rodzic canvas)
     QWidget* vp = parentWidget();  // viewport
-    QRect name_rect_canvas(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, NAME_H);
+    QRect name_rect_canvas(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, name_h());
     QRect name_rect_vp = name_rect_canvas;
     if (vp) {
         QPoint offset = mapTo(vp, QPoint(0, 0));
@@ -847,7 +849,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
     const auto& item = m_items[idx];
     bool sel = m_selected.contains(item.file.path) && !m_drag_active;
     bool cut = m_cut.contains(item.file.path);
-    int avail_h = ch - 2*CELL_VPAD - NAME_H - STARS_H - 3;
+    int avail_h = ch - 2*CELL_VPAD - name_h() - stars_h() - 3;
     QRect ir(CELL_PAD, CELL_VPAD, cw-2*CELL_PAD, avail_h);
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing);
@@ -897,7 +899,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
     {
         QFont nf=p.font(); nf.setPixelSize(Theme::px(11)); nf.setBold(false); p.setFont(nf);
         QFontMetrics fm(nf);
-        QRect nr(CELL_PAD, ir.bottom()+3, cw-2*CELL_PAD, NAME_H);
+        QRect nr(CELL_PAD, ir.bottom()+3, cw-2*CELL_PAD, name_h());
         p.setPen(sel ? Qt::white : Theme::c(QColor(0xCC,0xCC,0xCC)));
         p.drawText(nr, Qt::AlignHCenter|Qt::AlignVCenter,
                    fm.elidedText(item.file.name, Qt::ElideMiddle, nr.width()));
@@ -909,7 +911,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
                 "\u2605\u2605\u2605\u2606\u2606","\u2605\u2605\u2605\u2605\u2606"};
             QFont sf=nf; sf.setPixelSize(Theme::px(9)); p.setFont(sf);
             p.setPen(QColor(0xFF,0xD7,0x00));
-            QRect sr(CELL_PAD, nr.bottom()+1, cw-2*CELL_PAD, STARS_H);
+            QRect sr(CELL_PAD, nr.bottom()+1, cw-2*CELL_PAD, stars_h());
             int r=item.meta.rating;
             p.drawText(sr,Qt::AlignHCenter|Qt::AlignVCenter,
                        r==5?S5:(r>=1&&r<=4?SS[r]:QString()));
@@ -989,7 +991,7 @@ void ThumbnailCanvas::gl_draw_item(GL45* f, int idx) {
                        bg.redF(),bg.greenF(),bg.blueF());
 
     // Obszar miniatury
-    int aw=r.width()-2*CELL_PAD, ah=r.height()-2*CELL_VPAD-NAME_H-STARS_H-3;
+    int aw=r.width()-2*CELL_PAD, ah=r.height()-2*CELL_VPAD-name_h()-stars_h()-3;
     int ix=r.x()+CELL_PAD, iy=r.y()+CELL_VPAD;
     gl_draw_quad_color(f, ix,iy,aw,ah, 0x22/255.f,0x22/255.f,0x22/255.f);
 
