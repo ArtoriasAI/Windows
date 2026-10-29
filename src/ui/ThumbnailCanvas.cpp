@@ -380,7 +380,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
     } else if (item.thumb.isNull()) {
         p.fillRect(img_rect, Theme::c(QColor(0x22, 0x22, 0x22)));
         p.setPen(Theme::c(QColor(0x44, 0x44, 0x44)));
-        QFont f = p.font(); f.setPixelSize(11); p.setFont(f);
+        QFont f = p.font(); f.setPixelSize(Theme::px(11)); p.setFont(f);
         p.drawText(img_rect, Qt::AlignCenter, "⏳");
     } else {
         QSize scaled = item.thumb.size().scaled(img_rect.size(), Qt::KeepAspectRatio);
@@ -425,7 +425,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
         int name_y = img_rect.bottom() + 3;
         QRect name_rect(r.x() + CELL_PAD, name_y, r.width() - 2*CELL_PAD, NAME_H);
         p.setPen(selected ? Qt::white : Theme::c(QColor(0xCC, 0xCC, 0xCC)));
-        QFont fn = p.font(); fn.setPixelSize(11); p.setFont(fn);
+        QFont fn = p.font(); fn.setPixelSize(Theme::px(11)); p.setFont(fn);
         QFontMetrics fm(fn);
         p.drawText(name_rect, Qt::AlignHCenter | Qt::AlignVCenter,
                    fm.elidedText(item.file.name, Qt::ElideMiddle, name_rect.width()));
@@ -441,7 +441,7 @@ void ThumbnailCanvas::draw_item(QPainter& p, int idx, const QRect& r) {
 
 void ThumbnailCanvas::draw_stars(QPainter& p, const QRect& r, int rating) {
     p.setPen(QColor(0xFF, 0xD7, 0x00));
-    QFont f = p.font(); f.setPixelSize(9); p.setFont(f);
+    QFont f = p.font(); f.setPixelSize(Theme::px(9)); p.setFont(f);
     QString stars;
     for (int i = 0; i < 5; ++i) stars += (i < rating) ? "★" : "☆";
     p.drawText(r, Qt::AlignHCenter | Qt::AlignVCenter, stars);
@@ -449,7 +449,7 @@ void ThumbnailCanvas::draw_stars(QPainter& p, const QRect& r, int rating) {
 
 void ThumbnailCanvas::draw_badge(QPainter& p, const QRect& img_rect,
                                   const QString& text, const QColor& color) {
-    QFont f = p.font(); f.setPixelSize(9); f.setBold(true); p.setFont(f);
+    QFont f = p.font(); f.setPixelSize(Theme::px(9)); f.setBold(true); p.setFont(f);
     QFontMetrics fm(f);
     int bw = fm.horizontalAdvance(text) + 4, bh = 13;
     QRect br(img_rect.right() - bw - 2, img_rect.top() + 2, bw, bh);
@@ -887,7 +887,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
     if (!item.file.is_dir && (item.file.is_raw || item.file.is_psd)) {
         QString txt = item.file.is_raw ? "RAW" : "PSD";
         QColor col  = item.file.is_raw ? QColor(0xE5,0x89,0x20) : QColor(0x20,0x6E,0xE5);
-        QFont bf = p.font(); bf.setPixelSize(9); bf.setBold(true); p.setFont(bf);
+        QFont bf = p.font(); bf.setPixelSize(Theme::px(9)); bf.setBold(true); p.setFont(bf);
         QFontMetrics fm(bf);
         int bw=fm.horizontalAdvance(txt)+4, bh=13;
         QRect br(ir.right()-bw-2, ir.top()+2, bw, bh);
@@ -895,7 +895,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
     }
     // Nazwa
     {
-        QFont nf=p.font(); nf.setPixelSize(11); nf.setBold(false); p.setFont(nf);
+        QFont nf=p.font(); nf.setPixelSize(Theme::px(11)); nf.setBold(false); p.setFont(nf);
         QFontMetrics fm(nf);
         QRect nr(CELL_PAD, ir.bottom()+3, cw-2*CELL_PAD, NAME_H);
         p.setPen(sel ? Qt::white : Theme::c(QColor(0xCC,0xCC,0xCC)));
@@ -907,7 +907,7 @@ void ThumbnailCanvas::gpu_render_overlay(const QString& /*path*/, GpuEntry& e,
             static const QString SS[]={{},"\u2606\u2606\u2606\u2606\u2606",
                 "\u2605\u2606\u2606\u2606\u2606","\u2605\u2605\u2606\u2606\u2606",
                 "\u2605\u2605\u2605\u2606\u2606","\u2605\u2605\u2605\u2605\u2606"};
-            QFont sf=nf; sf.setPixelSize(9); p.setFont(sf);
+            QFont sf=nf; sf.setPixelSize(Theme::px(9)); p.setFont(sf);
             p.setPen(QColor(0xFF,0xD7,0x00));
             QRect sr(CELL_PAD, nr.bottom()+1, cw-2*CELL_PAD, STARS_H);
             int r=item.meta.rating;
