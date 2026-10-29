@@ -1,4 +1,5 @@
 #include "LapesEye/ui/FullscreenViewer.h"
+#include "LapesEye/core/Theme.h"
 #include "LapesEye/core/RawLook.h"
 
 #include <algorithm>
@@ -1406,13 +1407,13 @@ void FullscreenViewer::draw_overlay(QPainter& p) {
     QString name = QFileInfo(m_paths.value(m_index)).fileName();
     QString pos  = QString("%1 / %2").arg(m_index + 1).arg(m_paths.size());
     p.setPen(Qt::white);
-    QFont f = p.font(); f.setPixelSize(16); p.setFont(f);
+    QFont f = p.font(); f.setPixelSize(Theme::px(16)); p.setFont(f);
     p.drawText(bar.adjusted(20, 0, -20, 0), Qt::AlignVCenter | Qt::AlignLeft,  name);
     p.drawText(bar.adjusted(20, 0, -20, 0), Qt::AlignVCenter | Qt::AlignRight, pos);
     // Pasek górny — podpowiedź
     QRect hint(0, 0, width(), 34);
     p.fillRect(hint, QColor(0, 0, 0, 140));
-    f.setPixelSize(12); p.setFont(f); p.setPen(QColor("#aaa"));
+    f.setPixelSize(Theme::px(12)); p.setFont(f); p.setPen(QColor("#aaa"));
     p.drawText(hint.adjusted(14, 0, -14, 0), Qt::AlignVCenter,
         "←/→  nawigacja   LPM  zoom x2 / reset   Scroll  zoom   0  reset   Spacja/Esc  zamknij");
 }
